@@ -1,67 +1,37 @@
 @echo off
 chcp 65001 >nul
-title 录屏工具启动器
+title 屏幕录制工具环境检测与启动
 
-echo.
-echo ================================
-echo   录屏工具环境检查与启动
-echo ================================
+echo ========================================
+echo   屏幕录制工具环境检测与启动
+echo ========================================
 echo.
 
-:: 检查Python
-echo 检查Python环境...
+:: 检查Python是否安装
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo 错误: Python未安装或未在PATH中
+    echo ❌ 未检测到Python，请先安装Python 3.7+
+    echo 下载地址: https://www.python.org/downloads/
     pause
     exit /b 1
 )
 
-:: 检查必要包
-echo 检查Python依赖包...
-set "error_found=0"
+echo ✅ Python环境检测通过
+echo.
 
-for %%p in (PIL pynput psutil requests numpy) do (
-    python -c "import %%p" >nul 2>&1
-    if errorlevel 1 (
-        echo 错误: %%p 未安装
-        set "error_found=1"
-    ) else (
-        echo 成功: %%p 已安装
-    )
-)
+:: 运行环境检测和修复
+echo 正在检查依赖环境...
+python check_environment.py
 
-if %error_found% equ 1 (
+if errorlevel 1 (
     echo.
-    echo 尝试自动安装缺失的包...
-    for %%p in (PIL pynput psutil requests numpy) do (
-        python -c "import %%p" >nul 2>&1
-        if errorlevel 1 (
-            echo 正在安装 %%p...
-            pip install %%p -i https://pypi.tuna.tsinghua.edu.cn/simple/ --trusted-host pypi.tuna.tsinghua.edu.cn --quiet
-            if errorlevel 1 (
-                echo 安装 %%p 失败
-            ) else (
-                echo 安装 %%p 成功
-            )
-        )
-    )
-)
-
-:: 检查脚本是否存在
-if not exist "Super_Hi_Vision.py" (
-    echo 错误: 未找到Super_Hi_Vision.py
+    echo ❌ 环境检测失败，请手动检查依赖
     pause
     exit /b 1
 )
 
 echo.
-echo 环境检查完成，启动录屏工具...
-echo.
-
-:: 启动录屏工具
+echo ✅ 环境准备完成，启动录屏工具...
 python Super_Hi_Vision.py
 
-echo.
-echo 录屏工具已退出
 pause
