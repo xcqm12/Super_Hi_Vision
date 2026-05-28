@@ -7,6 +7,7 @@ import tempfile
 import platform
 import shutil
 import json
+import re
 from datetime import datetime
 import math
 import tkinter as tk
@@ -16,10 +17,31 @@ import numpy as np
 import wave
 import pyaudio
 
+# MIT License
+# Copyright (c) 2019-2025 七零喵网络互娱科技有限公司
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 # 版权信息
 __author__ = "七零喵网络互娱科技有限公司"
 __copyright__ = "Copyright 2019-2025, 七零喵网络互娱科技有限公司"
-__version__ = "1.5.0"  # 优化性能，降低CPU功耗
+__version__ = "1.5.5"  # 现代化UI设计、提升可视性
 __license__ = "MIT"
 __email__ = "qlm@qlm.org.cn"
 __website__ = "https://team.qlm.org.cn"
@@ -515,12 +537,13 @@ class DrawingTool:
         self.current_thickness = 3
         self.current_tool = "pen"  # pen, rectangle, circle, text
         self.temp_shape = None  # 临时图形，用于拖拽绘制
-        
-        # 创建画图工具窗口
-        self.create_drawing_window()
+        self.drawing_window = None  # 延迟创建窗口
     
     def create_drawing_window(self):
         """创建画图工具窗口"""
+        if self.drawing_window is not None:
+            return
+        
         self.drawing_window = tk.Toplevel(self.recorder.root)
         self.drawing_window.title("🎨 画图工具")
         self.drawing_window.geometry("300x500")
@@ -838,6 +861,9 @@ class ScreenRecorder:
         # 创建界面
         self.create_gui()
         
+        # 显示更新公告弹窗（延迟500ms确保界面已完全显示）
+        self.root.after(500, self.show_update_notification)
+        
         # 启动鼠标跟踪
         self.mouse_tracker.start_tracking()
         
@@ -874,11 +900,138 @@ class ScreenRecorder:
             print(f"❌ 初始化音频设备失败: {e}")
             self.record_audio = False
     
+    def create_announcement(self, parent):
+        """创建弹窗式公告（不再使用）"""
+        pass
+    
+    def show_update_notification(self):
+        """显示弹窗式更新公告，点击我知道了后不再推送 - 现代化设计"""
+        # 检查是否已经确认过
+        config_path = os.path.join(os.path.expanduser("~"), ".super_hivi_config")
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                config = f.read()
+                if f"version_{__version__}_notified" in config:
+                    return
+        
+        # 创建弹窗
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"📢 更新公告 - 版本 {__version__}")
+        dialog.geometry("650x550")
+        dialog.resizable(True, True)
+        dialog.minsize(550, 450)
+        dialog.configure(bg="#1a1a2e")
+        dialog.grab_set()  # 模态对话框
+        
+        # 居中显示
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (650 // 2)
+        y = (dialog.winfo_screenheight() // 2) - (550 // 2)
+        dialog.geometry(f"650x550+{x}+{y}")
+        
+        # 公告内容
+        announcement_text = f"""📋 版本更新内容 v{__version__}
+
+🎨 现代化UI设计：
+• 全新深色主题配色方案
+• 现代化标题栏设计
+• 精美的状态指示器
+• 优化的按钮样式和布局
+• Segoe UI 字体提升可读性
+
+🔧 修复内容：
+• 修复录制错误 "main thread is not in main loop" 问题
+• 修复界面文本不显示问题
+• 优化线程安全，确保所有UI操作在主线程执行
+• 修复画图工具窗口初始化时自动显示问题
+
+✨ 新增功能：
+• 添加 MIT 许可证协议确认对话框
+• 添加视频压缩进度显示
+• 添加弹窗式公告与更新说明
+• 公告弹窗支持滚动查看
+
+🛠️ 改进功能：
+• 许可证窗口自动适应屏幕大小
+• 按钮固定在窗口底部，确保始终可见
+• 优化音视频合成，修复无声问题
+• 画图工具改为点击弹出方式
+
+💡 使用提示：
+• 首次启动需同意许可证协议
+• 录制完成后自动进行视频压缩
+• 支持全屏、自定义区域、跟随鼠标三种录制模式
+• 按 F12 可打开/关闭画图工具
+• 公告弹窗可滚动查看全部内容"""
+        
+        # 主框架
+        main_frame = tk.Frame(dialog, bg="#1a1a2e")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 标题区域
+        title_frame = tk.Frame(main_frame, bg="#1a1a2e")
+        title_frame.pack(fill=tk.X, padx=20, pady=(20, 10))
+        
+        tk.Label(title_frame, text="🎉 Super Hi Vision 更新公告", 
+                font=("Segoe UI", 18, "bold"),
+                fg="#e94560", bg="#1a1a2e").pack(anchor=tk.W)
+        
+        tk.Label(title_frame, text=f"版本 {__version__} | 现代化设计，提升用户体验", 
+                font=("Segoe UI", 11),
+                fg="#a2a2a2", bg="#1a1a2e").pack(anchor=tk.W)
+        
+        # 滚动区域
+        scroll_frame = tk.Frame(main_frame, bg="#16213e")
+        scroll_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+        
+        # 创建滚动条
+        scrollbar = tk.Scrollbar(scroll_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # 创建文本框（带滚动条）
+        text_widget = tk.Text(scroll_frame, wrap=tk.WORD, 
+                             yscrollcommand=scrollbar.set,
+                             bg="#16213e", fg="#ffffff",
+                             font=("Segoe UI", 11),
+                             padx=15, pady=15,
+                             state=tk.DISABLED,
+                             cursor="arrow")
+        text_widget.pack(fill=tk.BOTH, expand=True)
+        
+        # 配置滚动条
+        scrollbar.config(command=text_widget.yview)
+        
+        # 插入文本
+        text_widget.configure(state=tk.NORMAL)
+        text_widget.insert(tk.END, announcement_text)
+        text_widget.configure(state=tk.DISABLED)
+        
+        # 我知道了按钮
+        button_frame = tk.Frame(dialog, bg="#1a1a2e")
+        button_frame.pack(fill=tk.X, padx=20, pady=(0, 20))
+        
+        def on_acknowledge():
+            # 保存配置
+            with open(config_path, "a") as f:
+                f.write(f"version_{__version__}_notified\n")
+            dialog.destroy()
+        
+        ok_button = tk.Button(button_frame, text="✅ 我知道了", 
+                              command=on_acknowledge,
+                              bg="#4ecca3", fg="#ffffff", 
+                              font=("Segoe UI", 13, "bold"),
+                              padx=50, pady=12,
+                              cursor="hand2",
+                              activebackground="#7fdbda",
+                              relief="flat")
+        ok_button.pack(side=tk.RIGHT)
+    
     def create_gui(self):
-        """创建图形用户界面"""
-        self.root.title(f"🎬 高级超高清屏幕录制工具 - 优化版 v{__version__}")
-        self.root.geometry("800x700")
-        self.root.configure(bg="#2c3e50")
+        """创建图形用户界面 - 现代化设计"""
+        self.root.title(f"Super Hi Vision - 高级超高清屏幕录制工具 v{__version__}")
+        self.root.geometry("900x750")
+        self.root.configure(bg="#1a1a2e")
+        self.root.minsize(800, 650)
         
         # 设置窗口图标
         try:
@@ -886,38 +1039,34 @@ class ScreenRecorder:
         except:
             pass
         
+        # 配置ttk样式
+        self.setup_modern_style()
+        
         # 主框架
-        main_frame = tk.Frame(self.root, bg="#2c3e50")
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        main_frame = tk.Frame(self.root, bg="#1a1a2e")
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
         
-        # 标题
-        title_frame = tk.Frame(main_frame, bg="#2c3e50")
-        title_frame.pack(fill=tk.X, pady=(0, 20))
-        
-        tk.Label(title_frame, text="🎬 高级超高清屏幕录制工具", 
-                font=("Arial", 20, "bold"), fg="white", bg="#2c3e50").pack()
-        
-        tk.Label(title_frame, text=f"版本 {__version__} | 优化性能，降低CPU功耗", 
-                font=("Arial", 10), fg="#bdc3c7", bg="#2c3e50").pack()
+        # 现代化标题区域
+        self.create_modern_header(main_frame)
         
         # 创建标签页
         notebook = ttk.Notebook(main_frame)
-        notebook.pack(fill=tk.BOTH, expand=True)
+        notebook.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
         
         # 基本设置标签页
-        basic_frame = tk.Frame(notebook, bg="#34495e")
+        basic_frame = tk.Frame(notebook, bg="#16213e")
         notebook.add(basic_frame, text="🎯 基本设置")
         
         # 录制设置标签页
-        advanced_frame = tk.Frame(notebook, bg="#34495e")
+        advanced_frame = tk.Frame(notebook, bg="#16213e")
         notebook.add(advanced_frame, text="⚙️ 高级设置")
         
         # 音频设置标签页
-        audio_frame = tk.Frame(notebook, bg="#34495e")
+        audio_frame = tk.Frame(notebook, bg="#16213e")
         notebook.add(audio_frame, text="🎵 音频设置")
         
         # 热键设置标签页
-        hotkey_frame = tk.Frame(notebook, bg="#34495e")
+        hotkey_frame = tk.Frame(notebook, bg="#16213e")
         notebook.add(hotkey_frame, text="⌨️ 热键设置")
         
         # 填充基本设置标签页
@@ -938,59 +1087,161 @@ class ScreenRecorder:
         # 控制按钮
         self.create_control_buttons(main_frame)
     
+    def setup_modern_style(self):
+        """配置现代化ttk样式"""
+        style = ttk.Style()
+        style.theme_use('clam')
+        
+        # 标签页样式
+        style.configure('TNotebook', background='#1a1a2e', borderwidth=0)
+        style.configure('TNotebook.Tab', 
+                       background='#16213e', 
+                       foreground='#e94560',
+                       padding=[15, 8],
+                       font=('Segoe UI', 11, 'bold'))
+        style.map('TNotebook.Tab',
+                 background=[('selected', '#e94560')],
+                 foreground=[('selected', '#ffffff')])
+        
+        # Combobox样式
+        style.configure('TCombobox',
+                       fieldbackground='#0f3460',
+                       background='#0f3460',
+                       foreground='#ffffff',
+                       arrowcolor='#e94560',
+                       font=('Segoe UI', 10))
+        
+        # Frame样式
+        style.configure('TFrame', background='#16213e')
+    
+    def create_modern_header(self, parent):
+        """创建现代化标题区域"""
+        header_frame = tk.Frame(parent, bg="#1a1a2e", height=80)
+        header_frame.pack(fill=tk.X, pady=(0, 10))
+        header_frame.pack_propagate(False)
+        
+        # 左侧标题
+        left_frame = tk.Frame(header_frame, bg="#1a1a2e")
+        left_frame.pack(side=tk.LEFT, fill=tk.Y, padx=10)
+        
+        tk.Label(left_frame, text="🎬 Super Hi Vision", 
+                font=("Segoe UI", 22, "bold"), 
+                fg="#e94560", bg="#1a1a2e").pack(anchor=tk.W)
+        
+        tk.Label(left_frame, text=f"高级超高清屏幕录制工具 | 版本 {__version__}", 
+                font=("Segoe UI", 11), 
+                fg="#a2a2a2", bg="#1a1a2e").pack(anchor=tk.W)
+        
+        # 右侧状态指示器
+        right_frame = tk.Frame(header_frame, bg="#1a1a2e")
+        right_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=10)
+        
+        self.header_status_var = tk.StringVar(value="● 就绪")
+        tk.Label(right_frame, textvariable=self.header_status_var,
+                font=("Segoe UI", 12, "bold"),
+                fg="#4ecca3", bg="#1a1a2e").pack(anchor=tk.E)
+    
     def create_basic_tab(self, parent):
-        """创建基本设置标签页"""
+        """创建基本设置标签页 - 现代化设计"""
         # 录制区域设置
         area_frame = tk.LabelFrame(parent, text="📐 录制区域设置", 
-                                 font=("Arial", 12, "bold"), bg="#34495e", fg="white")
-        area_frame.pack(fill=tk.X, padx=10, pady=10)
+                                 font=("Segoe UI", 12, "bold"), 
+                                 bg="#16213e", fg="#e94560",
+                                 bd=2, relief="groove")
+        area_frame.pack(fill=tk.X, padx=15, pady=10)
         
-        # 录制模式选择
-        mode_frame = tk.Frame(area_frame, bg="#34495e")
-        mode_frame.pack(fill=tk.X, padx=10, pady=5)
+        # 录制模式选择 - 现代化卡片式设计
+        mode_frame = tk.Frame(area_frame, bg="#16213e")
+        mode_frame.pack(fill=tk.X, padx=10, pady=8)
         
         self.area_mode = tk.StringVar(value="fullscreen")
         
-        tk.Radiobutton(mode_frame, text="全屏录制", variable=self.area_mode,
-                      value="fullscreen", bg="#34495e", fg="white", 
-                      selectcolor="#2c3e50", command=self.update_area_mode).pack(side=tk.LEFT)
+        # 现代化单选按钮样式
+        mode_buttons_frame = tk.Frame(mode_frame, bg="#16213e")
+        mode_buttons_frame.pack(fill=tk.X)
         
-        tk.Radiobutton(mode_frame, text="自定义区域", variable=self.area_mode,
-                      value="custom", bg="#34495e", fg="white",
-                      selectcolor="#2c3e50", command=self.update_area_mode).pack(side=tk.LEFT, padx=(20,0))
+        tk.Radiobutton(mode_buttons_frame, text="🖥️ 全屏录制", variable=self.area_mode,
+                      value="fullscreen", bg="#16213e", fg="#ffffff", 
+                      selectcolor="#0f3460", 
+                      activebackground="#16213e",
+                      activeforeground="#e94560",
+                      font=("Segoe UI", 10),
+                      command=self.update_area_mode).pack(side=tk.LEFT, padx=5)
         
-        tk.Radiobutton(mode_frame, text="跟随鼠标", variable=self.area_mode,
-                      value="follow_mouse", bg="#34495e", fg="white",
-                      selectcolor="#2c3e50", command=self.update_area_mode).pack(side=tk.LEFT, padx=(20,0))
+        tk.Radiobutton(mode_buttons_frame, text="📐 自定义区域", variable=self.area_mode,
+                      value="custom", bg="#16213e", fg="#ffffff",
+                      selectcolor="#0f3460",
+                      activebackground="#16213e",
+                      activeforeground="#e94560",
+                      font=("Segoe UI", 10),
+                      command=self.update_area_mode).pack(side=tk.LEFT, padx=15)
+        
+        tk.Radiobutton(mode_buttons_frame, text="🖱️ 跟随鼠标", variable=self.area_mode,
+                      value="follow_mouse", bg="#16213e", fg="#ffffff",
+                      selectcolor="#0f3460",
+                      activebackground="#16213e",
+                      activeforeground="#e94560",
+                      font=("Segoe UI", 10),
+                      command=self.update_area_mode).pack(side=tk.LEFT, padx=15)
         
         # 自定义区域设置
-        self.custom_frame = tk.Frame(area_frame, bg="#34495e")
+        self.custom_frame = tk.Frame(area_frame, bg="#16213e")
         self.custom_frame.pack(fill=tk.X, padx=10, pady=5)
         
-        tk.Label(self.custom_frame, text="宽度:", bg="#34495e", fg="white").pack(side=tk.LEFT)
+        tk.Label(self.custom_frame, text="宽度:", bg="#16213e", fg="#a2a2a2",
+                font=("Segoe UI", 10)).pack(side=tk.LEFT)
         self.width_var = tk.StringVar(value="1920")
-        tk.Entry(self.custom_frame, textvariable=self.width_var, width=8).pack(side=tk.LEFT, padx=(5,15))
+        width_entry = tk.Entry(self.custom_frame, textvariable=self.width_var, width=8,
+                              bg="#0f3460", fg="#ffffff",
+                              font=("Segoe UI", 10),
+                              insertbackground="#ffffff")
+        width_entry.pack(side=tk.LEFT, padx=(5,15))
         
-        tk.Label(self.custom_frame, text="高度:", bg="#34495e", fg="white").pack(side=tk.LEFT)
+        tk.Label(self.custom_frame, text="高度:", bg="#16213e", fg="#a2a2a2",
+                font=("Segoe UI", 10)).pack(side=tk.LEFT)
         self.height_var = tk.StringVar(value="1080")
-        tk.Entry(self.custom_frame, textvariable=self.height_var, width=8).pack(side=tk.LEFT, padx=(5,15))
+        height_entry = tk.Entry(self.custom_frame, textvariable=self.height_var, width=8,
+                               bg="#0f3460", fg="#ffffff",
+                               font=("Segoe UI", 10),
+                               insertbackground="#ffffff")
+        height_entry.pack(side=tk.LEFT, padx=(5,15))
         
-        tk.Button(self.custom_frame, text="选择区域", bg="#3498db", fg="white",
+        tk.Button(self.custom_frame, text="🔍 选择区域", 
+                 bg="#e94560", fg="#ffffff",
+                 font=("Segoe UI", 10, "bold"),
+                 padx=15, pady=5,
+                 cursor="hand2",
+                 activebackground="#ff6b6b",
                  command=self.select_area).pack(side=tk.LEFT)
         
         # 跟随鼠标设置
-        self.follow_frame = tk.Frame(area_frame, bg="#34495e")
+        self.follow_frame = tk.Frame(area_frame, bg="#16213e")
         self.follow_frame.pack(fill=tk.X, padx=10, pady=5)
         
-        tk.Label(self.follow_frame, text="区域大小:", bg="#34495e", fg="white").pack(side=tk.LEFT)
+        tk.Label(self.follow_frame, text="区域大小:", bg="#16213e", fg="#a2a2a2",
+                font=("Segoe UI", 10)).pack(side=tk.LEFT)
         self.follow_width_var = tk.StringVar(value="800")
-        tk.Entry(self.follow_frame, textvariable=self.follow_width_var, width=6).pack(side=tk.LEFT, padx=(5,5))
+        fw_entry = tk.Entry(self.follow_frame, textvariable=self.follow_width_var, width=6,
+                            bg="#0f3460", fg="#ffffff",
+                            font=("Segoe UI", 10),
+                            insertbackground="#ffffff")
+        fw_entry.pack(side=tk.LEFT, padx=(5,5))
         
-        tk.Label(self.follow_frame, text="x", bg="#34495e", fg="white").pack(side=tk.LEFT)
+        tk.Label(self.follow_frame, text="x", bg="#16213e", fg="#a2a2a2",
+                font=("Segoe UI", 10)).pack(side=tk.LEFT)
         self.follow_height_var = tk.StringVar(value="600")
-        tk.Entry(self.follow_frame, textvariable=self.follow_height_var, width=6).pack(side=tk.LEFT, padx=(5,15))
+        fh_entry = tk.Entry(self.follow_frame, textvariable=self.follow_height_var, width=6,
+                            bg="#0f3460", fg="#ffffff",
+                            font=("Segoe UI", 10),
+                            insertbackground="#ffffff")
+        fh_entry.pack(side=tk.LEFT, padx=(5,15))
         
-        tk.Button(self.follow_frame, text="测试跟随", bg="#9b59b6", fg="white",
+        tk.Button(self.follow_frame, text="🧪 测试跟随", 
+                 bg="#4ecca3", fg="#ffffff",
+                 font=("Segoe UI", 10, "bold"),
+                 padx=15, pady=5,
+                 cursor="hand2",
+                 activebackground="#7fdbda",
                  command=self.test_follow).pack(side=tk.LEFT)
         
         # 更新区域模式显示
@@ -998,155 +1249,215 @@ class ScreenRecorder:
         
         # 输出设置
         output_frame = tk.LabelFrame(parent, text="💾 输出设置", 
-                                   font=("Arial", 12, "bold"), bg="#34495e", fg="white")
-        output_frame.pack(fill=tk.X, padx=10, pady=10)
+                                   font=("Segoe UI", 12, "bold"), 
+                                   bg="#16213e", fg="#e94560",
+                                   bd=2, relief="groove")
+        output_frame.pack(fill=tk.X, padx=15, pady=10)
         
         # 文件名设置
-        name_frame = tk.Frame(output_frame, bg="#34495e")
+        name_frame = tk.Frame(output_frame, bg="#16213e")
         name_frame.pack(fill=tk.X, padx=10, pady=5)
         
-        tk.Label(name_frame, text="文件名:", bg="#34495e", fg="white").pack(side=tk.LEFT)
+        tk.Label(name_frame, text="文件名:", bg="#16213e", fg="#a2a2a2",
+                font=("Segoe UI", 10)).pack(side=tk.LEFT)
         self.filename_var = tk.StringVar(value=f"screen_recording_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-        tk.Entry(name_frame, textvariable=self.filename_var, width=30).pack(side=tk.LEFT, padx=(10,10))
+        name_entry = tk.Entry(name_frame, textvariable=self.filename_var, width=35,
+                             bg="#0f3460", fg="#ffffff",
+                             font=("Segoe UI", 10),
+                             insertbackground="#ffffff")
+        name_entry.pack(side=tk.LEFT, padx=(10,5), fill=tk.X, expand=True)
         
-        tk.Button(name_frame, text="浏览", bg="#3498db", fg="white",
+        tk.Button(name_frame, text="📁 浏览", 
+                 bg="#3498db", fg="#ffffff",
+                 font=("Segoe UI", 10, "bold"),
+                 padx=15, pady=5,
+                 cursor="hand2",
+                 activebackground="#5dade2",
                  command=self.browse_output_dir).pack(side=tk.LEFT)
         
         # 输出目录显示
-        dir_frame = tk.Frame(output_frame, bg="#34495e")
+        dir_frame = tk.Frame(output_frame, bg="#16213e")
         dir_frame.pack(fill=tk.X, padx=10, pady=5)
         
-        tk.Label(dir_frame, text="输出目录:", bg="#34495e", fg="white").pack(side=tk.LEFT)
+        tk.Label(dir_frame, text="输出目录:", bg="#16213e", fg="#a2a2a2",
+                font=("Segoe UI", 10)).pack(side=tk.LEFT)
         self.output_dir_var = tk.StringVar(value=self.output_dir)
         dir_label = tk.Label(dir_frame, textvariable=self.output_dir_var, 
-                           bg="#34495e", fg="#bdc3c7", anchor=tk.W)
+                           bg="#16213e", fg="#4ecca3", 
+                           font=("Segoe UI", 9),
+                           anchor=tk.W)
         dir_label.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10,0))
         
         # 新增：自定义输出路径设置
-        custom_path_frame = tk.Frame(output_frame, bg="#34495e")
+        custom_path_frame = tk.Frame(output_frame, bg="#16213e")
         custom_path_frame.pack(fill=tk.X, padx=10, pady=5)
         
-        tk.Label(custom_path_frame, text="自定义输出路径:", bg="#34495e", fg="white").pack(side=tk.LEFT)
+        tk.Label(custom_path_frame, text="自定义输出路径:", bg="#16213e", fg="#a2a2a2",
+                font=("Segoe UI", 10)).pack(side=tk.LEFT)
         
         self.custom_output_path_var = tk.StringVar(value="")
-        custom_path_entry = tk.Entry(custom_path_frame, textvariable=self.custom_output_path_var, width=40)
+        custom_path_entry = tk.Entry(custom_path_frame, textvariable=self.custom_output_path_var, width=40,
+                                    bg="#0f3460", fg="#ffffff",
+                                    font=("Segoe UI", 10),
+                                    insertbackground="#ffffff")
         custom_path_entry.pack(side=tk.LEFT, padx=(10,5), fill=tk.X, expand=True)
         
-        tk.Button(custom_path_frame, text="选择文件", bg="#9b59b6", fg="white",
+        tk.Button(custom_path_frame, text="📄 选择文件", 
+                 bg="#9b59b6", fg="#ffffff",
+                 font=("Segoe UI", 10, "bold"),
+                 padx=10, pady=5,
+                 cursor="hand2",
+                 activebackground="#a569bd",
                  command=self.browse_custom_output_file).pack(side=tk.LEFT, padx=(0,5))
         
-        tk.Button(custom_path_frame, text="使用默认", bg="#95a5a6", fg="white",
+        tk.Button(custom_path_frame, text="🔄 使用默认", 
+                 bg="#7f8c8d", fg="#ffffff",
+                 font=("Segoe UI", 10, "bold"),
+                 padx=10, pady=5,
+                 cursor="hand2",
+                 activebackground="#95a5a6",
                  command=self.use_default_output).pack(side=tk.LEFT)
     
     def create_advanced_tab(self, parent):
-        """创建高级设置标签页"""
+        """创建高级设置标签页 - 现代化设计"""
         # 视频格式设置
         format_frame = tk.LabelFrame(parent, text="🎥 视频格式设置", 
-                                   font=("Arial", 12, "bold"), bg="#34495e", fg="white")
-        format_frame.pack(fill=tk.X, padx=10, pady=10)
+                                   font=("Segoe UI", 12, "bold"), 
+                                   bg="#16213e", fg="#e94560",
+                                   bd=2, relief="groove")
+        format_frame.pack(fill=tk.X, padx=15, pady=10)
         
         # 格式选择
-        format_row1 = tk.Frame(format_frame, bg="#34495e")
-        format_row1.pack(fill=tk.X, padx=10, pady=5)
+        format_row1 = tk.Frame(format_frame, bg="#16213e")
+        format_row1.pack(fill=tk.X, padx=10, pady=8)
         
-        tk.Label(format_row1, text="输出格式:", bg="#34495e", fg="white").pack(side=tk.LEFT)
+        tk.Label(format_row1, text="输出格式:", bg="#16213e", fg="#a2a2a2",
+                font=("Segoe UI", 10)).pack(side=tk.LEFT)
         self.format_var = tk.StringVar(value="MP4")
         format_combo = ttk.Combobox(format_row1, textvariable=self.format_var, 
                                    values=list(SUPPORTED_FORMATS.keys()), state="readonly", width=15)
-        format_combo.pack(side=tk.LEFT, padx=(10,20))
+        format_combo.pack(side=tk.LEFT, padx=(10,25))
         format_combo.bind('<<ComboboxSelected>>', self.on_format_change)
         
-        tk.Label(format_row1, text="编码器:", bg="#34495e", fg="white").pack(side=tk.LEFT)
+        tk.Label(format_row1, text="编码器:", bg="#16213e", fg="#a2a2a2",
+                font=("Segoe UI", 10)).pack(side=tk.LEFT)
         self.codec_var = tk.StringVar(value="H.264 (libx264)")
         codec_combo = ttk.Combobox(format_row1, textvariable=self.codec_var, 
                                   values=list(SUPPORTED_CODECS.keys()), state="readonly", width=20)
         codec_combo.pack(side=tk.LEFT, padx=(10,0))
         
         # FPS设置
-        format_row2 = tk.Frame(format_frame, bg="#34495e")
-        format_row2.pack(fill=tk.X, padx=10, pady=5)
+        format_row2 = tk.Frame(format_frame, bg="#16213e")
+        format_row2.pack(fill=tk.X, padx=10, pady=8)
         
-        tk.Label(format_row2, text="帧率(FPS):", bg="#34495e", fg="white").pack(side=tk.LEFT)
+        tk.Label(format_row2, text="帧率(FPS):", bg="#16213e", fg="#a2a2a2",
+                font=("Segoe UI", 10)).pack(side=tk.LEFT)
         self.fps_var = tk.StringVar(value="30 FPS (标准)")
         fps_combo = ttk.Combobox(format_row2, textvariable=self.fps_var, 
                                 values=list(FPS_OPTIONS.keys()), state="readonly", width=20)
-        fps_combo.pack(side=tk.LEFT, padx=(10,20))
+        fps_combo.pack(side=tk.LEFT, padx=(10,25))
         fps_combo.bind('<<ComboboxSelected>>', self.on_fps_change)
         
         # 质量设置
         quality_frame = tk.LabelFrame(parent, text="📊 录制质量", 
-                                    font=("Arial", 12, "bold"), bg="#34495e", fg="white")
-        quality_frame.pack(fill=tk.X, padx=10, pady=10)
+                                    font=("Segoe UI", 12, "bold"), 
+                                    bg="#16213e", fg="#e94560",
+                                    bd=2, relief="groove")
+        quality_frame.pack(fill=tk.X, padx=15, pady=10)
         
         # 质量预设
-        preset_frame = tk.Frame(quality_frame, bg="#34495e")
-        preset_frame.pack(fill=tk.X, padx=10, pady=5)
+        preset_frame = tk.Frame(quality_frame, bg="#16213e")
+        preset_frame.pack(fill=tk.X, padx=10, pady=8)
         
         self.quality_var = tk.StringVar(value="high")
         
         qualities = [
-            ("低功耗 (15fps, 500kbps)", "low"),
-            ("标准 (30fps, 2Mbps)", "medium"),
-            ("高清 (30fps, 5Mbps)", "high"),
-            ("超清 (60fps, 10Mbps)", "ultra"),
-            ("蓝光 (60fps, 25Mbps)", "bluray")
+            ("🔋 低功耗 (15fps, 500kbps)", "low"),
+            ("📺 标准 (30fps, 2Mbps)", "medium"),
+            ("🎬 高清 (30fps, 5Mbps)", "high"),
+            ("🌟 超清 (60fps, 10Mbps)", "ultra"),
+            ("💎 蓝光 (60fps, 25Mbps)", "bluray")
         ]
         
         for text, value in qualities:
             tk.Radiobutton(preset_frame, text=text, variable=self.quality_var,
-                          value=value, bg="#34495e", fg="white", 
-                          selectcolor="#2c3e50", command=self.update_quality).pack(anchor=tk.W)
+                          value=value, bg="#16213e", fg="#ffffff", 
+                          selectcolor="#0f3460",
+                          activebackground="#16213e",
+                          activeforeground="#e94560",
+                          font=("Segoe UI", 10),
+                          command=self.update_quality).pack(anchor=tk.W, pady=2)
         
         # 性能优化设置
         perf_frame = tk.LabelFrame(parent, text="⚡ 性能优化", 
-                                 font=("Arial", 12, "bold"), bg="#34495e", fg="white")
-        perf_frame.pack(fill=tk.X, padx=10, pady=10)
+                                 font=("Segoe UI", 12, "bold"), 
+                                 bg="#16213e", fg="#e94560",
+                                 bd=2, relief="groove")
+        perf_frame.pack(fill=tk.X, padx=15, pady=10)
         
         self.performance_var = tk.StringVar(value="medium")
         
         perf_options = [
-            ("低功耗模式 (CPU占用低)", "low"),
-            ("平衡模式 (推荐)", "medium"),
-            ("高性能模式 (质量优先)", "high"),
-            ("极致模式 (最佳质量)", "ultra")
+            ("🟢 低功耗模式 (CPU占用低)", "low"),
+            ("🟡 平衡模式 (推荐)", "medium"),
+            ("🔴 高性能模式 (质量优先)", "high"),
+            ("🟣 极致模式 (最佳质量)", "ultra")
         ]
         
         for text, value in perf_options:
             tk.Radiobutton(perf_frame, text=text, variable=self.performance_var,
-                          value=value, bg="#34495e", fg="white", 
-                          selectcolor="#2c3e50", command=self.update_performance).pack(anchor=tk.W)
+                          value=value, bg="#16213e", fg="#ffffff", 
+                          selectcolor="#0f3460",
+                          activebackground="#16213e",
+                          activeforeground="#e94560",
+                          font=("Segoe UI", 10),
+                          command=self.update_performance).pack(anchor=tk.W, pady=2)
         
         # 画图工具按钮
-        drawing_frame = tk.Frame(parent, bg="#34495e")
-        drawing_frame.pack(fill=tk.X, padx=10, pady=10)
+        drawing_frame = tk.Frame(parent, bg="#16213e")
+        drawing_frame.pack(fill=tk.X, padx=15, pady=10)
         
-        tk.Button(drawing_frame, text="🎨 打开画图工具", bg="#e67e22", fg="white",
-                 font=("Arial", 10, "bold"), command=self.open_drawing_tool).pack(pady=5)
+        tk.Button(drawing_frame, text="🎨 打开画图工具", 
+                 bg="#e67e22", fg="#ffffff",
+                 font=("Segoe UI", 11, "bold"),
+                 padx=20, pady=8,
+                 cursor="hand2",
+                 activebackground="#f39c12",
+                 command=self.open_drawing_tool).pack(pady=5)
     
     def create_audio_tab(self, parent):
-        """创建音频设置标签页"""
+        """创建音频设置标签页 - 现代化设计"""
         # 音频录制开关
         audio_switch_frame = tk.LabelFrame(parent, text="🔊 音频录制", 
-                                         font=("Arial", 12, "bold"), bg="#34495e", fg="white")
-        audio_switch_frame.pack(fill=tk.X, padx=10, pady=10)
+                                         font=("Segoe UI", 12, "bold"), 
+                                         bg="#16213e", fg="#e94560",
+                                         bd=2, relief="groove")
+        audio_switch_frame.pack(fill=tk.X, padx=15, pady=10)
         
-        switch_frame = tk.Frame(audio_switch_frame, bg="#34495e")
-        switch_frame.pack(fill=tk.X, padx=10, pady=5)
+        switch_frame = tk.Frame(audio_switch_frame, bg="#16213e")
+        switch_frame.pack(fill=tk.X, padx=10, pady=8)
         
         self.audio_enabled_var = tk.BooleanVar(value=self.record_audio)
-        audio_switch = tk.Checkbutton(switch_frame, text="启用音频录制", 
+        audio_switch = tk.Checkbutton(switch_frame, text="✅ 启用音频录制", 
                                     variable=self.audio_enabled_var,
-                                    bg="#34495e", fg="white", selectcolor="#2c3e50",
+                                    bg="#16213e", fg="#ffffff",
+                                    selectcolor="#0f3460",
+                                    activebackground="#16213e",
+                                    activeforeground="#e94560",
+                                    font=("Segoe UI", 10),
                                     command=self.toggle_audio_recording)
         audio_switch.pack(anchor=tk.W)
         
         # 音频设备选择
         device_frame = tk.LabelFrame(parent, text="🎤 音频设备", 
-                                   font=("Arial", 12, "bold"), bg="#34495e", fg="white")
-        device_frame.pack(fill=tk.X, padx=10, pady=10)
+                                   font=("Segoe UI", 12, "bold"), 
+                                   bg="#16213e", fg="#e94560",
+                                   bd=2, relief="groove")
+        device_frame.pack(fill=tk.X, padx=15, pady=10)
         
         if self.audio_devices:
-            tk.Label(device_frame, text="选择输入设备:", bg="#34495e", fg="white").pack(anchor=tk.W, padx=10, pady=5)
+            tk.Label(device_frame, text="选择输入设备:", bg="#16213e", fg="#a2a2a2",
+                    font=("Segoe UI", 10)).pack(anchor=tk.W, padx=10, pady=5)
             
             self.audio_device_var = tk.StringVar()
             device_names = [f"{dev['index']}: {dev['name']}" for dev in self.audio_devices]
@@ -1158,20 +1469,33 @@ class ScreenRecorder:
             device_combo.bind('<<ComboboxSelected>>', self.on_audio_device_change)
         else:
             tk.Label(device_frame, text="❌ 未找到可用的音频输入设备", 
-                    bg="#34495e", fg="#e74c3c").pack(padx=10, pady=10)
+                    bg="#16213e", fg="#e74c3c",
+                    font=("Segoe UI", 10)).pack(padx=10, pady=10)
         
         # 音频测试
         test_frame = tk.LabelFrame(parent, text="🎧 音频测试", 
-                                 font=("Arial", 12, "bold"), bg="#34495e", fg="white")
-        test_frame.pack(fill=tk.X, padx=10, pady=10)
+                                 font=("Segoe UI", 12, "bold"), 
+                                 bg="#16213e", fg="#e94560",
+                                 bd=2, relief="groove")
+        test_frame.pack(fill=tk.X, padx=15, pady=10)
         
-        test_buttons_frame = tk.Frame(test_frame, bg="#34495e")
+        test_buttons_frame = tk.Frame(test_frame, bg="#16213e")
         test_buttons_frame.pack(fill=tk.X, padx=10, pady=10)
         
-        tk.Button(test_buttons_frame, text="🔊 测试音频输入", bg="#3498db", fg="white",
+        tk.Button(test_buttons_frame, text="🔊 测试音频输入", 
+                 bg="#3498db", fg="#ffffff",
+                 font=("Segoe UI", 10, "bold"),
+                 padx=15, pady=6,
+                 cursor="hand2",
+                 activebackground="#5dade2",
                  command=self.test_audio_input).pack(side=tk.LEFT, padx=5)
         
-        tk.Button(test_buttons_frame, text="🔄 刷新设备列表", bg="#9b59b6", fg="white",
+        tk.Button(test_buttons_frame, text="🔄 刷新设备列表", 
+                 bg="#9b59b6", fg="#ffffff",
+                 font=("Segoe UI", 10, "bold"),
+                 padx=15, pady=6,
+                 cursor="hand2",
+                 activebackground="#a569bd",
                  command=self.refresh_audio_devices).pack(side=tk.LEFT, padx=5)
         
         # 音频状态显示
@@ -1182,132 +1506,222 @@ class ScreenRecorder:
             self.audio_status_var.set("❌ 音频支持不可用")
         
         status_label = tk.Label(test_frame, textvariable=self.audio_status_var, 
-                              bg="#34495e", fg="#bdc3c7")
+                              bg="#16213e", fg="#4ecca3",
+                              font=("Segoe UI", 10))
         status_label.pack(pady=5)
     
     def create_hotkey_tab(self, parent):
-        """创建热键设置标签页"""
+        """创建热键设置标签页 - 现代化设计"""
         # 热键说明
         desc_frame = tk.LabelFrame(parent, text="⌨️ 热键说明", 
-                                 font=("Arial", 12, "bold"), bg="#34495e", fg="white")
-        desc_frame.pack(fill=tk.X, padx=10, pady=10)
+                                 font=("Segoe UI", 12, "bold"), 
+                                 bg="#16213e", fg="#e94560",
+                                 bd=2, relief="groove")
+        desc_frame.pack(fill=tk.X, padx=15, pady=10)
         
         hotkey_text = """
-全局热键（录制过程中可用）：
+🎮 全局热键（录制过程中可用）：
 • F9  - 开始/暂停录制
 • F10 - 停止录制
 • F11 - 截图（录制中也可用）
 • F12 - 显示/隐藏画图工具
 
-画图工具热键：
+🎨 画图工具热键：
 • 鼠标左键 - 开始绘制
 • 鼠标移动 - 持续绘制
 • 鼠标释放 - 停止绘制
 • C键     - 清除所有绘制
 • ESC键   - 退出画图模式
 
-注意：热键在应用程序窗口激活时生效
+💡 注意：热键在应用程序窗口激活时生效
         """
         
         hotkey_label = tk.Label(desc_frame, text=hotkey_text, justify=tk.LEFT,
-                              bg="#34495e", fg="#bdc3c7", font=("Consolas", 10))
+                              bg="#16213e", fg="#a2a2a2", 
+                              font=("Segoe UI", 10))
         hotkey_label.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
         
         # 自定义热键设置
         custom_frame = tk.LabelFrame(parent, text="🔧 自定义热键", 
-                                   font=("Arial", 12, "bold"), bg="#34495e", fg="white")
-        custom_frame.pack(fill=tk.X, padx=10, pady=10)
+                                   font=("Segoe UI", 12, "bold"), 
+                                   bg="#16213e", fg="#e94560",
+                                   bd=2, relief="groove")
+        custom_frame.pack(fill=tk.X, padx=15, pady=10)
         
         # 开始/暂停热键
-        start_frame = tk.Frame(custom_frame, bg="#34495e")
-        start_frame.pack(fill=tk.X, padx=10, pady=5)
+        start_frame = tk.Frame(custom_frame, bg="#16213e")
+        start_frame.pack(fill=tk.X, padx=10, pady=8)
         
-        tk.Label(start_frame, text="开始/暂停:", bg="#34495e", fg="white").pack(side=tk.LEFT)
+        tk.Label(start_frame, text="开始/暂停:", bg="#16213e", fg="#a2a2a2",
+                font=("Segoe UI", 10)).pack(side=tk.LEFT)
         self.start_hotkey_var = tk.StringVar(value="F9")
-        tk.Entry(start_frame, textvariable=self.start_hotkey_var, width=10).pack(side=tk.LEFT, padx=(10,20))
+        start_entry = tk.Entry(start_frame, textvariable=self.start_hotkey_var, width=10,
+                              bg="#0f3460", fg="#ffffff",
+                              font=("Segoe UI", 10),
+                              insertbackground="#ffffff")
+        start_entry.pack(side=tk.LEFT, padx=(10,25))
         
         # 停止热键
-        stop_frame = tk.Frame(custom_frame, bg="#34495e")
-        stop_frame.pack(fill=tk.X, padx=10, pady=5)
+        stop_frame = tk.Frame(custom_frame, bg="#16213e")
+        stop_frame.pack(fill=tk.X, padx=10, pady=8)
         
-        tk.Label(stop_frame, text="停止录制:", bg="#34495e", fg="white").pack(side=tk.LEFT)
+        tk.Label(stop_frame, text="停止录制:", bg="#16213e", fg="#a2a2a2",
+                font=("Segoe UI", 10)).pack(side=tk.LEFT)
         self.stop_hotkey_var = tk.StringVar(value="F10")
-        tk.Entry(stop_frame, textvariable=self.stop_hotkey_var, width=10).pack(side=tk.LEFT, padx=(10,20))
+        stop_entry = tk.Entry(stop_frame, textvariable=self.stop_hotkey_var, width=10,
+                             bg="#0f3460", fg="#ffffff",
+                             font=("Segoe UI", 10),
+                             insertbackground="#ffffff")
+        stop_entry.pack(side=tk.LEFT, padx=(10,25))
         
         # 截图热键
-        screenshot_frame = tk.Frame(custom_frame, bg="#34495e")
-        screenshot_frame.pack(fill=tk.X, padx=10, pady=5)
+        screenshot_frame = tk.Frame(custom_frame, bg="#16213e")
+        screenshot_frame.pack(fill=tk.X, padx=10, pady=8)
         
-        tk.Label(screenshot_frame, text="截图:", bg="#34495e", fg="white").pack(side=tk.LEFT)
+        tk.Label(screenshot_frame, text="截图:", bg="#16213e", fg="#a2a2a2",
+                font=("Segoe UI", 10)).pack(side=tk.LEFT)
         self.screenshot_hotkey_var = tk.StringVar(value="F11")
-        tk.Entry(screenshot_frame, textvariable=self.screenshot_hotkey_var, width=10).pack(side=tk.LEFT, padx=(10,20))
+        screenshot_entry = tk.Entry(screenshot_frame, textvariable=self.screenshot_hotkey_var, width=10,
+                                   bg="#0f3460", fg="#ffffff",
+                                   font=("Segoe UI", 10),
+                                   insertbackground="#ffffff")
+        screenshot_entry.pack(side=tk.LEFT, padx=(10,25))
         
         # 应用热键按钮
-        apply_frame = tk.Frame(custom_frame, bg="#34495e")
+        apply_frame = tk.Frame(custom_frame, bg="#16213e")
         apply_frame.pack(fill=tk.X, padx=10, pady=10)
         
-        tk.Button(apply_frame, text="💾 应用热键设置", bg="#27ae60", fg="white",
+        tk.Button(apply_frame, text="💾 应用热键设置", 
+                 bg="#4ecca3", fg="#ffffff",
+                 font=("Segoe UI", 11, "bold"),
+                 padx=20, pady=8,
+                 cursor="hand2",
+                 activebackground="#7fdbda",
                  command=self.apply_hotkeys).pack()
     
     def create_status_bar(self, parent):
-        """创建状态栏"""
-        status_frame = tk.Frame(parent, bg="#34495e")
-        status_frame.pack(fill=tk.X, pady=(20, 10))
+        """创建状态栏 - 现代化设计"""
+        status_frame = tk.Frame(parent, bg="#0f3460", height=50)
+        status_frame.pack(fill=tk.X, pady=(15, 5))
+        status_frame.pack_propagate(False)
         
-        # 录制状态
-        self.recording_status_var = tk.StringVar(value="🔴 未开始录制")
-        status_label = tk.Label(status_frame, textvariable=self.recording_status_var,
-                              font=("Arial", 12, "bold"), bg="#34495e", fg="white")
-        status_label.pack(side=tk.LEFT)
+        # 左侧：录制状态指示器
+        left_status = tk.Frame(status_frame, bg="#0f3460")
+        left_status.pack(side=tk.LEFT, fill=tk.Y, padx=15)
+        
+        # 状态指示灯
+        self.status_indicator = tk.Label(left_status, text="●", 
+                                         font=("Segoe UI", 16),
+                                         fg="#4ecca3", bg="#0f3460")
+        self.status_indicator.pack(side=tk.LEFT)
+        
+        self.recording_status_var = tk.StringVar(value="就绪")
+        status_label = tk.Label(left_status, textvariable=self.recording_status_var,
+                              font=("Segoe UI", 12, "bold"), 
+                              bg="#0f3460", fg="#ffffff")
+        status_label.pack(side=tk.LEFT, padx=(5,0))
+        
+        # 右侧：时间和帧率信息
+        right_status = tk.Frame(status_frame, bg="#0f3460")
+        right_status.pack(side=tk.RIGHT, fill=tk.Y, padx=15)
         
         # 录制时间
-        self.recording_time_var = tk.StringVar(value="00:00:00")
-        time_label = tk.Label(status_frame, textvariable=self.recording_time_var,
-                            font=("Arial", 12), bg="#34495e", fg="#bdc3c7")
-        time_label.pack(side=tk.RIGHT)
+        self.recording_time_var = tk.StringVar(value="⏱️ 00:00:00")
+        time_label = tk.Label(right_status, textvariable=self.recording_time_var,
+                            font=("Segoe UI", 11), 
+                            bg="#0f3460", fg="#4ecca3")
+        time_label.pack(side=tk.RIGHT, padx=(15,0))
         
         # 帧率显示
         self.fps_status_var = tk.StringVar(value="FPS: --")
-        fps_label = tk.Label(status_frame, textvariable=self.fps_status_var,
-                           font=("Arial", 10), bg="#34495e", fg="#bdc3c7")
-        fps_label.pack(side=tk.RIGHT, padx=(0, 20))
+        fps_label = tk.Label(right_status, textvariable=self.fps_status_var,
+                           font=("Segoe UI", 10), 
+                           bg="#0f3460", fg="#a2a2a2")
+        fps_label.pack(side=tk.RIGHT, padx=(15,0))
         
         # 文件大小显示
-        self.file_size_var = tk.StringVar(value="大小: --")
-        size_label = tk.Label(status_frame, textvariable=self.file_size_var,
-                            font=("Arial", 10), bg="#34495e", fg="#bdc3c7")
-        size_label.pack(side=tk.RIGHT, padx=(0, 20))
+        self.file_size_var = tk.StringVar(value="📁 --")
+        size_label = tk.Label(right_status, textvariable=self.file_size_var,
+                            font=("Segoe UI", 10), 
+                            bg="#0f3460", fg="#a2a2a2")
+        size_label.pack(side=tk.RIGHT, padx=(15,0))
     
     def create_control_buttons(self, parent):
-        """创建控制按钮"""
-        button_frame = tk.Frame(parent, bg="#2c3e50")
+        """创建控制按钮 - 现代化设计"""
+        button_frame = tk.Frame(parent, bg="#1a1a2e")
         button_frame.pack(fill=tk.X, pady=10)
         
-        # 开始录制按钮
-        self.start_button = tk.Button(button_frame, text="🎬 开始录制 (F9)", 
-                                    font=("Arial", 14, "bold"), bg="#27ae60", fg="white",
-                                    width=15, height=2, command=self.start_recording)
-        self.start_button.pack(side=tk.LEFT, padx=10)
+        # 按钮容器 - 现代化卡片式布局
+        button_container = tk.Frame(button_frame, bg="#1a1a2e")
+        button_container.pack(fill=tk.X, padx=10)
+        
+        # 开始录制按钮 - 主操作按钮（更大更醒目）
+        self.start_button = tk.Button(button_container, text="▶️ 开始录制", 
+                                    font=("Segoe UI", 13, "bold"), 
+                                    bg="#4ecca3", fg="#ffffff",
+                                    padx=25, pady=12, 
+                                    cursor="hand2",
+                                    activebackground="#7fdbda",
+                                    activeforeground="#ffffff",
+                                    relief="flat",
+                                    command=self.start_recording)
+        self.start_button.pack(side=tk.LEFT, padx=8)
+        
+        # 添加快捷键提示标签
+        start_hint = tk.Label(button_container, text="F9",
+                            font=("Segoe UI", 9),
+                            bg="#1a1a2e", fg="#a2a2a2")
+        start_hint.pack(side=tk.LEFT, padx=(0, 15))
         
         # 暂停录制按钮
-        self.pause_button = tk.Button(button_frame, text="⏸️ 暂停录制 (F9)", 
-                                    font=("Arial", 14, "bold"), bg="#f39c12", fg="white",
-                                    width=15, height=2, command=self.pause_recording,
+        self.pause_button = tk.Button(button_container, text="⏸️ 暂停", 
+                                    font=("Segoe UI", 12, "bold"), 
+                                    bg="#f39c12", fg="#ffffff",
+                                    padx=20, pady=10,
+                                    cursor="hand2",
+                                    activebackground="#f5b041",
+                                    activeforeground="#ffffff",
+                                    relief="flat",
+                                    command=self.pause_recording,
                                     state=tk.DISABLED)
-        self.pause_button.pack(side=tk.LEFT, padx=10)
+        self.pause_button.pack(side=tk.LEFT, padx=8)
         
         # 停止录制按钮
-        self.stop_button = tk.Button(button_frame, text="⏹️ 停止录制 (F10)", 
-                                   font=("Arial", 14, "bold"), bg="#e74c3c", fg="white",
-                                   width=15, height=2, command=self.stop_recording,
+        self.stop_button = tk.Button(button_container, text="⏹️ 停止", 
+                                   font=("Segoe UI", 12, "bold"), 
+                                   bg="#e74c3c", fg="#ffffff",
+                                   padx=20, pady=10,
+                                   cursor="hand2",
+                                   activebackground="#ec7063",
+                                   activeforeground="#ffffff",
+                                   relief="flat",
+                                   command=self.stop_recording,
                                    state=tk.DISABLED)
-        self.stop_button.pack(side=tk.LEFT, padx=10)
+        self.stop_button.pack(side=tk.LEFT, padx=8)
+        
+        # 添加停止快捷键提示
+        stop_hint = tk.Label(button_container, text="F10",
+                            font=("Segoe UI", 9),
+                            bg="#1a1a2e", fg="#a2a2a2")
+        stop_hint.pack(side=tk.LEFT, padx=(0, 15))
         
         # 截图按钮
-        self.screenshot_button = tk.Button(button_frame, text="📸 截图 (F11)", 
-                                         font=("Arial", 12, "bold"), bg="#3498db", fg="white",
-                                         width=12, height=2, command=self.take_screenshot)
-        self.screenshot_button.pack(side=tk.LEFT, padx=10)
+        self.screenshot_button = tk.Button(button_container, text="📸 截图", 
+                                         font=("Segoe UI", 11, "bold"), 
+                                         bg="#3498db", fg="#ffffff",
+                                         padx=18, pady=10,
+                                         cursor="hand2",
+                                         activebackground="#5dade2",
+                                         activeforeground="#ffffff",
+                                         relief="flat",
+                                         command=self.take_screenshot)
+        self.screenshot_button.pack(side=tk.LEFT, padx=8)
+        
+        # 截图快捷键提示
+        screenshot_hint = tk.Label(button_container, text="F11",
+                                  font=("Segoe UI", 9),
+                                  bg="#1a1a2e", fg="#a2a2a2")
+        screenshot_hint.pack(side=tk.LEFT)
     
     def update_area_mode(self):
         """更新区域模式显示"""
@@ -1435,14 +1849,19 @@ class ScreenRecorder:
     def open_drawing_tool(self):
         """打开画图工具"""
         try:
-            if hasattr(self, 'drawing_tool') and hasattr(self.drawing_tool, 'drawing_window'):
+            if hasattr(self, 'drawing_tool') and self.drawing_tool.drawing_window is not None:
                 self.drawing_tool.drawing_window.deiconify()
                 self.drawing_tool.drawing_window.lift()
             else:
-                self.drawing_tool = DrawingTool(self)
+                # 创建画图工具并显示窗口
+                if not hasattr(self, 'drawing_tool'):
+                    self.drawing_tool = DrawingTool(self)
+                self.drawing_tool.create_drawing_window()
+                self.drawing_tool.drawing_window.deiconify()
         except Exception as e:
             print(f"❌ 打开画图工具失败: {e}")
             self.drawing_tool = DrawingTool(self)
+            self.drawing_tool.create_drawing_window()
     
     def test_audio_input(self):
         """测试音频输入"""
@@ -1516,7 +1935,7 @@ class ScreenRecorder:
                     if hasattr(key, 'char') and key.char:
                         key_char = key.char.lower()
                         # 画图工具热键
-                        if hasattr(self, 'drawing_tool') and self.drawing_tool.drawing_window.winfo_viewable():
+                        if hasattr(self, 'drawing_tool') and self.drawing_tool.drawing_window is not None and self.drawing_tool.drawing_window.winfo_viewable():
                             if key_char == 'c':  # 清除绘制
                                 self.drawing_tool.clear_all()
                             elif key == keyboard.Key.esc:  # 退出画图
@@ -1585,8 +2004,8 @@ class ScreenRecorder:
             self.last_frame_time = time.time()
             self.frame_count = 0
             
-            # 更新UI
-            self.update_ui_for_recording()
+            # 更新UI（使用after确保在主线程）
+            self.root.after(0, self.update_ui_for_recording)
             
             # 启动录制线程
             self.recording_thread = threading.Thread(target=self.record_screen, daemon=True)
@@ -1598,7 +2017,8 @@ class ScreenRecorder:
             print("🎬 开始屏幕录制...")
             
         except Exception as e:
-            messagebox.showerror("录制错误", f"开始录制失败: {str(e)}")
+            # 使用after确保错误消息在主线程显示
+            self.root.after(0, lambda err=str(e): messagebox.showerror("录制错误", f"开始录制失败: {err}"))
             self.cleanup_recording()
     
     def pause_recording(self):
@@ -1613,16 +2033,18 @@ class ScreenRecorder:
             if self.audio_enabled:
                 self.audio_stop_event.set()
             
-            self.pause_button.config(text="▶️ 恢复录制 (F9)", bg="#27ae60")
-            self.recording_status_var.set("⏸️ 录制已暂停")
+            # 使用after确保UI更新在主线程
+            self.root.after(0, lambda: self.pause_button.config(text="▶️ 恢复录制 (F9)", bg="#27ae60"))
+            self.root.after(0, lambda: self.recording_status_var.set("⏸️ 录制已暂停"))
             print("⏸️ 录制暂停")
         else:
             # 恢复音频录制
             if self.record_audio and AUDIO_SUPPORT and not self.audio_enabled:
                 self.start_audio_recording()
             
-            self.pause_button.config(text="⏸️ 暂停录制 (F9)", bg="#f39c12")
-            self.recording_status_var.set("🔴 录制中...")
+            # 使用after确保UI更新在主线程
+            self.root.after(0, lambda: self.pause_button.config(text="⏸️ 暂停录制 (F9)", bg="#f39c12"))
+            self.root.after(0, lambda: self.recording_status_var.set("🔴 录制中..."))
             print("▶️ 录制恢复")
     
     def stop_recording(self):
@@ -1653,10 +2075,18 @@ class ScreenRecorder:
         if self.record_audio and AUDIO_SUPPORT and self.audio_frames:
             self.merge_audio_video()
         
-        # 更新UI
-        self.update_ui_for_stopped()
+        # 视频压缩处理
+        if self.output_file and os.path.exists(self.output_file):
+            self.compress_video()
         
-        # 显示完成消息
+        # 更新UI（使用after确保在主线程）
+        self.root.after(0, self.update_ui_for_stopped)
+        
+        # 显示完成消息（使用after确保在主线程）
+        self.root.after(0, self.show_completion_message)
+    
+    def show_completion_message(self):
+        """显示录制完成消息"""
         if self.output_file and os.path.exists(self.output_file):
             file_size = os.path.getsize(self.output_file) / (1024 * 1024)  # MB
             messagebox.showinfo("录制完成", 
@@ -1833,6 +2263,11 @@ class ScreenRecorder:
     def merge_audio_video(self):
         """合并音视频"""
         if not self.audio_frames or not self.output_file:
+            print("⚠️ 音频帧为空或输出文件不存在，跳过音视频合并")
+            return
+        
+        if not FFMPEG_AVAILABLE:
+            print("⚠️ FFmpeg不可用，跳过音视频合并")
             return
         
         try:
@@ -1841,36 +2276,69 @@ class ScreenRecorder:
             
             self.temp_audio_file = os.path.join(self.temp_dir, "temp_audio.wav")
             
+            # 确保audio相关属性存在
+            audio_channels = getattr(self, 'audio_channels', 1)
+            audio_rate = getattr(self, 'audio_rate', 44100)
+            audio_format = getattr(self, 'audio_format', None)
+            
             # 保存音频到WAV文件
             wf = wave.open(self.temp_audio_file, 'wb')
-            wf.setnchannels(self.audio_channels)
-            wf.setsampwidth(self.audio.get_sample_size(self.audio_format))
-            wf.setframerate(self.audio_rate)
+            wf.setnchannels(audio_channels)
+            if audio_format is not None:
+                wf.setsampwidth(pyaudio.PyAudio().get_sample_size(audio_format))
+            else:
+                wf.setsampwidth(2)  # 默认16位
+            wf.setframerate(audio_rate)
             wf.writeframes(b''.join(self.audio_frames))
             wf.close()
             
-            # 使用FFmpeg合并音视频
-            temp_output = self.output_file.replace('.mp4', '_with_audio.mp4')
+            # 检查临时音频文件
+            if not os.path.exists(self.temp_audio_file) or os.path.getsize(self.temp_audio_file) == 0:
+                print("❌ 音频文件创建失败或为空")
+                return
             
+            print(f"🔊 音频文件已创建: {os.path.getsize(self.temp_audio_file)} bytes")
+            
+            # 使用FFmpeg合并音视频
+            # 获取原始视频格式
+            format_info = SUPPORTED_FORMATS.get(self.format, SUPPORTED_FORMATS["MP4"])
+            file_ext = format_info["ext"]
+            base_name = os.path.splitext(self.output_file)[0]
+            temp_output = base_name + "_with_audio.mp4"
+            
+            # FFmpeg合并命令 - 修复音视频同步问题
             ffmpeg_cmd = [
-                'ffmpeg', '-y',  # -y 覆盖输出文件
-                '-i', self.output_file,  # 输入视频文件
-                '-i', self.temp_audio_file,  # 输入音频文件
-                '-c:v', 'copy',  # 视频流直接复制
-                '-c:a', 'aac',  # 音频编码为AAC
+                'ffmpeg', '-y',
+                '-i', self.output_file,
+                '-i', self.temp_audio_file,
+                '-c:v', 'copy',
+                '-c:a', 'aac',
+                '-ar', '44100',
+                '-ac', '2',
+                '-shortest',
+                '-async', '1',
                 '-strict', 'experimental',
                 temp_output
             ]
             
+            print("🔄 正在合并音视频...")
             result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
             
             if result.returncode == 0 and os.path.exists(temp_output):
+                original_size = os.path.getsize(self.output_file)
+                merged_size = os.path.getsize(temp_output)
+                
                 # 删除原始文件，重命名新文件
                 os.remove(self.output_file)
                 os.rename(temp_output, self.output_file)
-                print("✅ 音视频合并完成")
+                
+                print(f"✅ 音视频合并完成")
+                print(f"   原始大小: {original_size / (1024 * 1024):.2f} MB")
+                print(f"   合并后大小: {merged_size / (1024 * 1024):.2f} MB")
             else:
                 print(f"❌ 音视频合并失败: {result.stderr}")
+                if os.path.exists(temp_output):
+                    os.remove(temp_output)
             
             # 清理临时音频文件
             if os.path.exists(self.temp_audio_file):
@@ -1878,6 +2346,89 @@ class ScreenRecorder:
                 
         except Exception as e:
             print(f"❌ 音视频合并错误: {e}")
+    
+    def compress_video(self):
+        """视频压缩处理"""
+        if not FFMPEG_AVAILABLE:
+            print("⚠️ FFmpeg不可用，跳过视频压缩")
+            self.root.after(0, lambda: self.recording_status_var.set("⚠️ FFmpeg不可用，跳过压缩"))
+            return
+        
+        if not self.output_file or not os.path.exists(self.output_file):
+            return
+        
+        compress_thread = threading.Thread(target=self._compress_video_thread, daemon=True)
+        compress_thread.start()
+    
+    def _compress_video_thread(self):
+        """视频压缩处理线程"""
+        try:
+            original_size = os.path.getsize(self.output_file)
+            temp_compressed = os.path.join(self.temp_dir, "compressed_temp.mp4")
+            
+            quality = self.quality_var.get()
+            crf_value = QUALITY_PRESETS.get(quality, QUALITY_PRESETS["medium"])["crf"]
+            
+            ffmpeg_cmd = [
+                'ffmpeg', '-y',
+                '-i', self.output_file,
+                '-c:v', 'libx264',
+                '-crf', str(crf_value),
+                '-preset', 'medium',
+                '-c:a', 'aac',
+                '-b:a', '128k',
+                '-progress', 'pipe:1',
+                temp_compressed
+            ]
+            
+            self.root.after(0, lambda: self.recording_status_var.set("🔄 视频压缩中... 0%"))
+            
+            process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            
+            total_duration = None
+            for line in process.stdout:
+                line = line.strip()
+                if line.startswith('duration='):
+                    duration_str = line.split('=')[1]
+                    try:
+                        h, m, s = duration_str.split(':')
+                        total_duration = int(h) * 3600 + int(m) * 60 + float(s)
+                    except:
+                        pass
+                elif line.startswith('out_time_ms='):
+                    if total_duration:
+                        time_ms = int(line.split('=')[1]) / 1000000
+                        progress = min(int((time_ms / total_duration) * 100), 99)
+                        self.root.after(0, lambda p=progress: self.recording_status_var.set(f"🔄 视频压缩中... {p}%"))
+            
+            process.wait()
+            
+            if process.returncode == 0 and os.path.exists(temp_compressed):
+                compressed_size = os.path.getsize(temp_compressed)
+                
+                if compressed_size < original_size:
+                    os.remove(self.output_file)
+                    os.rename(temp_compressed, self.output_file)
+                    
+                    compression_ratio = (1 - compressed_size / original_size) * 100
+                    self.root.after(0, lambda: self.recording_status_var.set(f"✅ 压缩完成! 节省{compression_ratio:.1f}%"))
+                    print(f"✅ 视频压缩完成 - 压缩率: {compression_ratio:.1f}%")
+                    print(f"   原大小: {original_size / (1024 * 1024):.2f} MB")
+                    print(f"   压缩后: {compressed_size / (1024 * 1024):.2f} MB")
+                else:
+                    os.remove(temp_compressed)
+                    self.root.after(0, lambda: self.recording_status_var.set("⚠️ 压缩后文件未变小，保留原文件"))
+                    print("⚠️ 压缩后文件未变小，保留原文件")
+            else:
+                stderr = process.stderr.read() if process.stderr else ""
+                print(f"❌ 视频压缩失败: {stderr}")
+                self.root.after(0, lambda: self.recording_status_var.set("❌ 视频压缩失败"))
+                if os.path.exists(temp_compressed):
+                    os.remove(temp_compressed)
+                    
+        except Exception as e:
+            print(f"❌ 视频压缩错误: {e}")
+            self.root.after(0, lambda: self.recording_status_var.set(f"❌ 压缩错误: {str(e)[:20]}"))
     
     def record_screen(self):
         """录制屏幕主循环"""
@@ -2112,7 +2663,7 @@ class ScreenRecorder:
             self.keyboard_listener.stop()
         
         # 关闭画图工具窗口
-        if hasattr(self, 'drawing_tool') and hasattr(self.drawing_tool, 'drawing_window'):
+        if hasattr(self, 'drawing_tool') and self.drawing_tool.drawing_window is not None:
             self.drawing_tool.drawing_window.destroy()
         
         # 清理临时目录
@@ -2226,6 +2777,11 @@ class AreaSelector:
 def main():
     """主函数"""
     try:
+        # 显示MIT许可证协议
+        if not show_license_agreement():
+            print("❌ 用户不同意许可证协议，应用程序已退出")
+            sys.exit(0)
+        
         # 创建主窗口
         root = tk.Tk()
         
@@ -2243,6 +2799,148 @@ def main():
     except Exception as e:
         print(f"❌ 应用程序错误: {e}")
         messagebox.showerror("错误", f"应用程序启动失败: {str(e)}")
+
+def show_license_agreement():
+    """显示MIT许可证协议对话框"""
+    import urllib.request
+    import ssl
+    
+    license_text = """
+MIT License
+
+Copyright (c) 2019-2025 七零喵网络互娱科技有限公司
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
+    
+    # 创建许可证对话框（作为独立窗口）
+    license_root = tk.Tk()
+    license_root.title("📜 MIT 许可证协议 - 必须同意才能继续")
+    
+    # 获取屏幕尺寸并设置合适的大小
+    screen_width = license_root.winfo_screenwidth()
+    screen_height = license_root.winfo_screenheight()
+    
+    # 设置窗口大小为屏幕的80%
+    window_width = min(int(screen_width * 0.8), 900)
+    window_height = min(int(screen_height * 0.85), 700)
+    
+    # 窗口居中
+    x = (screen_width - window_width) // 2
+    y = (screen_height - window_height) // 2
+    license_root.geometry(f"{window_width}x{window_height}+{x}+{y}")
+    
+    # 允许调整大小
+    license_root.resizable(True, True)
+    
+    # 设置窗口最小尺寸确保按钮可见
+    license_root.minsize(600, 500)
+    
+    # 标题
+    title_label = tk.Label(license_root, text="📜 MIT 许可证协议", font=("Arial", 16, "bold"))
+    title_label.pack(pady=15)
+    
+    # 说明
+    info_label = tk.Label(license_root, text="请仔细阅读以下许可证协议条款：", font=("Arial", 10))
+    info_label.pack(pady=5)
+    
+    # 许可证文本框（带滚动条）
+    text_frame = tk.Frame(license_root)
+    text_frame.pack(pady=10, padx=20, fill="both", expand=True)
+    
+    scrollbar = tk.Scrollbar(text_frame)
+    scrollbar.pack(side="right", fill="y")
+    
+    license_textbox = tk.Text(text_frame, wrap="word", yscrollcommand=scrollbar.set, font=("Arial", 10))
+    license_textbox.insert("1.0", license_text)
+    license_textbox.config(state="disabled")
+    license_textbox.pack(side="left", fill="both", expand=True)
+    scrollbar.config(command=license_textbox.yview)
+    
+    # 尝试在线验证许可证
+    try:
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        license_root.update()
+    except:
+        pass
+    
+    # 变量存储用户选择
+    user_agreed = [False]
+    
+    def on_agree():
+        user_agreed[0] = True
+        license_root.destroy()
+    
+    def on_disagree():
+        license_root.destroy()
+        cleanup_and_exit()
+    
+    # 按钮框架 - 使用固定底部布局确保按钮始终可见
+    button_frame = tk.Frame(license_root, bg="#f0f0f0", relief="raised", bd=2)
+    button_frame.pack(side="bottom", fill="x", pady=15, padx=20)
+    
+    # 按钮容器 - 让按钮居中
+    button_container = tk.Frame(button_frame)
+    button_container.pack(anchor="center", pady=5)
+    
+    # 同意按钮（绿色）
+    agree_button = tk.Button(button_container, text="✅ 同意并继续", font=("Arial", 14, "bold"),
+                            bg="#4CAF50", fg="white", padx=30, pady=15,
+                            command=on_agree, cursor="hand2")
+    agree_button.pack(side="left", padx=30)
+    
+    # 不同意按钮（红色）
+    disagree_button = tk.Button(button_container, text="❌ 不同意并退出", font=("Arial", 14, "bold"),
+                               bg="#f44336", fg="white", padx=30, pady=15,
+                               command=on_disagree, cursor="hand2")
+    disagree_button.pack(side="left", padx=30)
+    
+    # 设置窗口模态
+    license_root.transient()
+    license_root.grab_set()
+    
+    # 等待窗口关闭
+    license_root.wait_window()
+    
+    return user_agreed[0]
+
+def cleanup_and_exit():
+    """清理数据并退出应用"""
+    try:
+        # 清理临时目录
+        temp_dir = tempfile.mkdtemp(prefix="screen_recorder_")
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        
+        # 清理FFmpeg目录（如果存在）
+        ffmpeg_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ffmpeg")
+        if os.path.exists(ffmpeg_dir):
+            shutil.rmtree(ffmpeg_dir, ignore_errors=True)
+        
+        print("🧹 数据清理完成")
+    except:
+        pass
+    
+    messagebox.showinfo("退出", "您已不同意许可证协议，应用程序将退出。")
+    sys.exit(0)
 
 if __name__ == "__main__":
     main()

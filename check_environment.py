@@ -197,26 +197,60 @@ def install_pyaudio_windows():
         is_64bit = platform.architecture()[0] == "64bit"
         platform_tag = "win_amd64" if is_64bit else "win32"
         
-        wheel_url = f"https://download.lfd.uci.edu/pythonlibs/w6tyco5e/PyAudio-0.2.11-{python_version}-{python_version}-{platform_tag}.whl"
+        # 尝试多个版本的wheel
+        wheel_urls = [
+            f"https://download.lfd.uci.edu/pythonlibs/w6tyco5e/PyAudio-0.2.13-{python_version}-{python_version}-{platform_tag}.whl",
+            f"https://download.lfd.uci.edu/pythonlibs/w6tyco5e/PyAudio-0.2.12-{python_version}-{python_version}-{platform_tag}.whl",
+            f"https://download.lfd.uci.edu/pythonlibs/w6tyco5e/PyAudio-0.2.11-{python_version}-{python_version}-{platform_tag}.whl",
+            f"https://download.lfd.uci.edu/pythonlibs/w6tyco5e/PyAudio-0.2.11-{python_version}-none-{platform_tag}.whl"
+        ]
         
-        for mirror in MIRROR_SOURCES:
+        for wheel_url in wheel_urls:
+            print(f"  尝试安装: {wheel_url.split('/')[-1]}")
+            
+            # 首先尝试直接从原始URL下载
             try:
-                print(f"  尝试使用{mirror['name']}安装预编译版本...")
                 result = subprocess.run([
                     sys.executable, "-m", "pip", "install",
-                    wheel_url, "-i", mirror['url'],
-                    "--trusted-host", mirror['trusted_host'],
-                    "--timeout", "60"
+                    wheel_url, "--timeout", "60"
                 ], capture_output=True, text=True, timeout=120)
                 
                 if result.returncode == 0:
-                    print(f"✅ 使用{mirror['name']}安装PyAudio成功")
+                    print("✅ PyAudio安装成功")
                     return True
-                else:
-                    print(f"  {mirror['name']}安装失败: {result.stderr}")
             except Exception as e:
-                print(f"  {mirror['name']}安装异常: {e}")
-                continue
+                print(f"  直接下载失败: {e}")
+            
+            # 尝试使用国内源
+            for mirror in MIRROR_SOURCES:
+                try:
+                    result = subprocess.run([
+                        sys.executable, "-m", "pip", "install",
+                        wheel_url, "-i", mirror['url'],
+                        "--trusted-host", mirror['trusted_host'],
+                        "--timeout", "60"
+                    ], capture_output=True, text=True, timeout=120)
+                    
+                    if result.returncode == 0:
+                        print(f"✅ 使用{mirror['name']}安装PyAudio成功")
+                        return True
+                except Exception as e:
+                    continue
+        
+        print("❌ PyAudio安装失败，尝试使用 pipwin 安装...")
+        
+        # 尝试使用 pipwin 安装
+        try:
+            if install_package("pipwin"):
+                result = subprocess.run([
+                    sys.executable, "-m", "pipwin", "install", "pyaudio"
+                ], capture_output=True, text=True, timeout=180)
+                
+                if result.returncode == 0:
+                    print("✅ 使用pipwin安装PyAudio成功")
+                    return True
+        except Exception as e:
+            print(f"  pipwin安装失败: {e}")
         
         print("❌ PyAudio安装失败，可能需要手动安装")
         print("请访问: https://www.lfd.uci.edu/~gohlke/pythonlibs/#pyaudio")
