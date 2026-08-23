@@ -34,8 +34,12 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip
           Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg_extract -Force
           New-Item -ItemType Directory -Force -Path ffmpeg | Out-Null
-          Get-ChildItem "ffmpeg_extract\*\bin\ffmpeg.exe", "ffmpeg_extract\*\bin\ffplay.exe", "ffmpeg_extract\*\bin\ffprobe.exe" -ErrorAction SilentlyContinue |
-            ForEach-Object { Copy-Item $_.FullName -Destination "ffmpeg\" -Force }
+          foreach ($f in @("ffmpeg.exe", "ffplay.exe", "ffprobe.exe")) {
+            Get-ChildItem -Path "ffmpeg_extract" -Recurse -Filter $f | Select-Object -First 1 |
+              ForEach-Object { Copy-Item $_.FullName -Destination ("ffmpeg\" + $f) -Force }
+          }
+          $missing = @("ffmpeg\ffmpeg.exe", "ffmpeg\ffplay.exe", "ffmpeg\ffprobe.exe") | Where-Object { -not (Test-Path $_) }
+          if ($missing) { Write-Error "缺少 FFmpeg 文件: $missing"; exit 1 }
           Get-ChildItem ffmpeg | Select-Object Name, Length
 
       - name: Build EXE with PyInstaller
@@ -47,6 +51,13 @@ jobs:
         shell: pwsh
         run: |
           choco install nsis -y --no-progress
+
+      # installer.nsi 中的 File 指令引用工作区根目录的 exe，需先从 dist 复制到根目录
+      - name: Prepare NSIS input files
+        shell: pwsh
+        run: |
+          Copy-Item -Path "dist/SuperHiVision_v1.5.10.exe" -Destination "SuperHiVision_v1.5.10.exe" -Force
+          Get-ChildItem "SuperHiVision_v1.5.10.exe" | Select-Object Name, Length
 
       - name: Build NSIS installer
         shell: pwsh
