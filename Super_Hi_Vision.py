@@ -848,6 +848,10 @@ class ScreenRecorder:
         self.performance_mode = "medium"  # 性能模式
         self.frame_skip_counter = 0
         
+        # 实际录制时长统计（用于校正视频帧率，防止快放/慢放）
+        self.recording_active_seconds = 0.0
+        self.last_active_tick = 0
+        
         # 新增：临时截图文件管理
         self.temp_screenshots = []
         self.temp_dir = tempfile.mkdtemp(prefix="screen_recorder_")
@@ -2003,6 +2007,8 @@ class ScreenRecorder:
             self.recording_start_time = time.time()
             self.last_frame_time = time.time()
             self.frame_count = 0
+            self.recording_active_seconds = 0.0
+            self.last_active_tick = time.time()
             
             # 更新UI（使用after确保在主线程）
             self.root.after(0, self.update_ui_for_recording)
@@ -2070,6 +2076,9 @@ class ScreenRecorder:
         
         # 清理资源
         self.cleanup_recording()
+        
+        # 校正视频帧率（防止快放/慢放）——必须在音视频合并之前执行
+        self.fix_video_playback_speed()
         
         # 合并音视频（如果录制了音频）
         if self.record_audio and AUDIO_SUPPORT and self.audio_frames:
@@ -2438,12 +2447,19 @@ class ScreenRecorder:
         
         while self.recording:
             if self.paused:
+                # 暂停期间刷新计时点，保证暂停时长不计入有效录制时长
+                self.last_active_tick = time.time()
                 time.sleep(0.1)
                 continue
             
             try:
                 current_time = time.time()
                 elapsed = current_time - self.last_frame_time
+                
+                # 累加有效录制时长（不含暂停），用于录制结束后校正视频帧率
+                if self.last_active_tick > 0:
+                    self.recording_active_seconds += current_time - self.last_active_tick
+                self.last_active_tick = current_time
                 
                 # 帧跳过逻辑
                 self.frame_skip_counter += 1
@@ -2472,9 +2488,9 @@ class ScreenRecorder:
                     actual_fps = 30 / (time.time() - (current_time - elapsed * 30))
                     self.root.after(0, lambda: self.fps_status_var.set(f"FPS: {actual_fps:.1f}"))
                 
-                # 性能优化：控制帧率
+                # 性能优化：控制帧率（完整补偿休眠，尽量贴近目标帧率，避免帧数偏差导致快放/慢放）
                 processing_time = time.time() - current_time
-                sleep_time = max(0, self.target_frame_time - processing_time) * sleep_factor
+                sleep_time = max(0, self.target_frame_time - processing_time)
                 if sleep_time > 0:
                     time.sleep(sleep_time)
                     
@@ -2630,6 +2646,91 @@ class ScreenRecorder:
         self.cleanup_temp_files()
         
         print("🧹 录制资源已清理")
+    
+    def fix_video_playback_speed(self):
+        """校正视频播放速度：按实际捕获帧率重设视频帧率
+        
+        问题根源：视频写入器以目标FPS（如30）初始化，但实际捕获帧率往往低于
+        目标值（屏幕抓取耗时、低性能模式跳帧等），导致视频文件帧数少于按目标
+        FPS应有时长，播放时速度加快（快放），且与实时音频不同步。
+        
+        本方法根据 实际帧数/有效录制时长 计算真实帧率，用FFmpeg调整视频时间戳
+        使播放时长与真实录制时长一致：
+        - 方式一：-itsscale 时间戳缩放 + 流复制（无损、不重新编码）
+        - 方式二：输入端 -r 重新编码（精确，作为回退）
+        """
+        if not self.output_file or not os.path.exists(self.output_file):
+            return
+        if not FFMPEG_AVAILABLE:
+            print("⚠️ FFmpeg不可用，无法校正视频帧率")
+            return
+        
+        active_seconds = getattr(self, 'recording_active_seconds', 0.0)
+        frame_count = getattr(self, 'frame_count', 0)
+        if active_seconds <= 0 or frame_count <= 0:
+            return
+        
+        actual_fps = frame_count / active_seconds
+        target_fps = getattr(self, 'fps', 30)
+        
+        # 帧率差异小于阈值时无需校正
+        if abs(actual_fps - target_fps) < 0.5:
+            return
+        
+        print(f"🎞️ 校正视频帧率: 声明 {target_fps} FPS, 实际捕获 {actual_fps:.2f} FPS")
+        
+        try:
+            base_name = os.path.splitext(self.output_file)[0]
+            ext = os.path.splitext(self.output_file)[1]
+            temp_corrected = base_name + "_fps_corrected" + ext
+            
+            # 时间戳缩放系数：目标播放时长 / 文件当前时长 = target_fps / actual_fps
+            scale_factor = target_fps / actual_fps
+            actual_fps_str = f"{actual_fps:.3f}"
+            
+            # 方式一：-itsscale 时间戳缩放 + 流复制（无损、快速）
+            ffmpeg_cmd = [
+                'ffmpeg', '-y',
+                '-itsscale', f"{scale_factor:.6f}",
+                '-i', self.output_file,
+                '-c:v', 'copy',
+                '-an',
+                temp_corrected
+            ]
+            result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+            
+            if result.returncode == 0 and os.path.exists(temp_corrected) and os.path.getsize(temp_corrected) > 0:
+                os.remove(self.output_file)
+                os.rename(temp_corrected, self.output_file)
+                print(f"✅ 视频帧率校正完成(无损): {actual_fps:.2f} FPS")
+                return
+            
+            # 方式二：重封装失败则重新编码校正（输入端 -r 重新生成时间戳）
+            if os.path.exists(temp_corrected):
+                os.remove(temp_corrected)
+            print("⚠️ 时间戳缩放失败，尝试重新编码...")
+            ffmpeg_cmd = [
+                'ffmpeg', '-y',
+                '-r', actual_fps_str,
+                '-i', self.output_file,
+                '-c:v', 'libx264',
+                '-preset', 'fast',
+                '-crf', '18',
+                '-an',
+                temp_corrected
+            ]
+            result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+            
+            if result.returncode == 0 and os.path.exists(temp_corrected) and os.path.getsize(temp_corrected) > 0:
+                os.remove(self.output_file)
+                os.rename(temp_corrected, self.output_file)
+                print(f"✅ 视频帧率校正完成(重新编码): {actual_fps:.2f} FPS")
+            else:
+                if os.path.exists(temp_corrected):
+                    os.remove(temp_corrected)
+                print(f"❌ 视频帧率校正失败: {result.stderr[-300:]}")
+        except Exception as e:
+            print(f"❌ 视频帧率校正错误: {e}")
     
     def cleanup_temp_files(self):
         """清理临时文件"""

@@ -687,6 +687,10 @@ class ScreenRecorderApp(QMainWindow):
         self.recording_start_time = None
         self.elapsed_time = 0
 
+        # 实际录制时长统计（用于校正视频帧率，防止快放/慢放）
+        self.recording_active_seconds = 0.0
+        self.last_active_tick = 0
+
         self.theme_manager = ThemeManager()
         self.language_manager = LanguageManager()
 
@@ -1166,6 +1170,8 @@ class ScreenRecorderApp(QMainWindow):
         self.frame_count = 0
         self.audio_frames = []
         self.recording_start_time = time.time()
+        self.recording_active_seconds = 0.0
+        self.last_active_tick = time.time()
 
         output_filename = self.filename_edit.text()
         if not output_filename:
@@ -1229,6 +1235,11 @@ class ScreenRecorderApp(QMainWindow):
     def recording_loop(self):
         """录制循环"""
         while self.recording:
+            # 累加有效录制时长（不含暂停），用于录制结束后校正视频帧率
+            if self.last_active_tick > 0 and not self.paused:
+                self.recording_active_seconds += time.time() - self.last_active_tick
+            self.last_active_tick = time.time()
+
             if not self.paused:
                 try:
                     if self.area_mode == 'fullscreen':
@@ -1312,6 +1323,9 @@ class ScreenRecorderApp(QMainWindow):
         if self.video_writer:
             self.video_writer.release()
 
+        # 校正视频帧率（防止快放/慢放）
+        self.fix_video_playback_speed()
+
         if self.audio_frames and self.output_file:
             self.merge_audio_video()
 
@@ -1328,6 +1342,94 @@ class ScreenRecorderApp(QMainWindow):
         """处理音频数据"""
         if self.recording and not self.paused:
             self.audio_frames.append(data)
+
+    def _find_ffmpeg(self):
+        """查找FFmpeg可执行文件（优先程序自带 ffmpeg 目录，其次系统 PATH）"""
+        bundled = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ffmpeg", "ffmpeg.exe")
+        if os.path.exists(bundled):
+            return bundled
+        try:
+            result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True)
+            if result.returncode == 0:
+                return 'ffmpeg'
+        except Exception:
+            pass
+        return None
+
+    def fix_video_playback_speed(self):
+        """校正视频播放速度：按实际捕获帧率重设视频帧率（防止快放/慢放）
+
+        视频写入器以目标FPS初始化，但实际捕获帧率往往低于目标值（屏幕抓取耗时等），
+        导致视频文件帧数不足、播放时速度加快。此处根据 实际帧数/有效录制时长 计算
+        真实帧率并用FFmpeg调整视频时间戳，使播放时长与真实录制时长一致：
+        - 方式一：-itsscale 时间戳缩放 + 流复制（无损、不重新编码）
+        - 方式二：输入端 -r 重新编码（精确，作为回退）
+        """
+        if not self.output_file or not os.path.exists(self.output_file):
+            return
+
+        ffmpeg_cmd_exe = self._find_ffmpeg()
+        if not ffmpeg_cmd_exe:
+            print("⚠️ FFmpeg不可用，无法校正视频帧率")
+            return
+
+        active_seconds = getattr(self, 'recording_active_seconds', 0.0)
+        frame_count = getattr(self, 'frame_count', 0)
+        if active_seconds <= 0 or frame_count <= 0:
+            return
+
+        actual_fps = frame_count / active_seconds
+        target_fps = getattr(self, 'fps', 30)
+
+        # 帧率差异小于阈值时无需校正
+        if abs(actual_fps - target_fps) < 0.5:
+            return
+
+        print(f"🎞️ 校正视频帧率: 声明 {target_fps} FPS, 实际捕获 {actual_fps:.2f} FPS")
+
+        try:
+            base_name = os.path.splitext(self.output_file)[0]
+            ext = os.path.splitext(self.output_file)[1]
+            temp_corrected = base_name + "_fps_corrected" + ext
+
+            # 时间戳缩放系数：目标播放时长 / 文件当前时长 = target_fps / actual_fps
+            scale_factor = target_fps / actual_fps
+            actual_fps_str = f"{actual_fps:.3f}"
+
+            # 方式一：-itsscale 时间戳缩放 + 流复制（无损、快速）
+            result = subprocess.run(
+                [ffmpeg_cmd_exe, '-y', '-itsscale', f"{scale_factor:.6f}",
+                 '-i', self.output_file, '-c:v', 'copy', '-an', temp_corrected],
+                capture_output=True, text=True
+            )
+
+            if result.returncode == 0 and os.path.exists(temp_corrected) and os.path.getsize(temp_corrected) > 0:
+                os.remove(self.output_file)
+                os.rename(temp_corrected, self.output_file)
+                print(f"✅ 视频帧率校正完成(无损): {actual_fps:.2f} FPS")
+                return
+
+            # 方式二：缩放失败则重新编码校正（输入端 -r 重新生成时间戳）
+            if os.path.exists(temp_corrected):
+                os.remove(temp_corrected)
+            print("⚠️ 时间戳缩放失败，尝试重新编码...")
+            result = subprocess.run(
+                [ffmpeg_cmd_exe, '-y', '-r', actual_fps_str,
+                 '-i', self.output_file, '-c:v', 'libx264',
+                 '-preset', 'fast', '-crf', '18', '-an', temp_corrected],
+                capture_output=True, text=True
+            )
+
+            if result.returncode == 0 and os.path.exists(temp_corrected) and os.path.getsize(temp_corrected) > 0:
+                os.remove(self.output_file)
+                os.rename(temp_corrected, self.output_file)
+                print(f"✅ 视频帧率校正完成(重新编码): {actual_fps:.2f} FPS")
+            else:
+                if os.path.exists(temp_corrected):
+                    os.remove(temp_corrected)
+                print(f"❌ 视频帧率校正失败: {result.stderr[-300:]}")
+        except Exception as e:
+            print(f"❌ 视频帧率校正错误: {e}")
 
     def merge_audio_video(self):
         """合并音频和视频"""
