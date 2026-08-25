@@ -8,7 +8,7 @@ a = Analysis(
     ['Super_Hi_Vision_PyQt.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('icon.ico', '.')],
     hiddenimports=[
         'cv2', 'PIL', 'numpy', 'pyaudio', 'wave', 'struct', 'math',
         'PyQt5', 'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets',
@@ -35,7 +35,8 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='SuperHiVision_v1.5.15',
+    name='SuperHiVision_v1.5.16',
+    icon='icon.ico',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

@@ -1,5 +1,5 @@
 ﻿; Super Hi Vision NSIS Installation Script
-; Version: 1.5.15
+; Version: 1.5.16
 ; 应用模式：启动器通过 wscript 运行，无控制台窗口
 ; 安装包已合成全部运行时依赖（EXE + FFmpeg + 环境检测脚本）
 
@@ -12,12 +12,12 @@
 !define DESCRIPTION "Advanced HD Screen Recording Tool"
 !define VERSIONMAJOR 1
 !define VERSIONMINOR 5
-!define VERSIONBUILD 15
+!define VERSIONBUILD 16
 !define HELPURL "https://team.qlm.org.cn"
 !define UPDATEURL "https://team.qlm.org.cn"
 !define ABOUTURL "https://team.qlm.org.cn"
 !define INSTALLSIZE 120000
-!define EXEFILE "SuperHiVision_v1.5.15.exe"
+!define EXEFILE "SuperHiVision_v1.5.16.exe"
 !define LAUNCHERVBS "SuperHiVision_Launcher.vbs"
 
 ; Installer Settings
@@ -30,8 +30,8 @@ RequestExecutionLevel admin
 
 ; UI Settings
 !define MUI_ABORTWARNING
-!define MUI_ICON "${NSISDIR}\Contrib\Graphics\Icons\modern-install.ico"
-!define MUI_UNICON "${NSISDIR}\Contrib\Graphics\Icons\modern-uninstall.ico"
+!define MUI_ICON "icon.ico"
+!define MUI_UNICON "icon.ico"
 
 ; Pages
 !insertmacro MUI_PAGE_WELCOME
@@ -57,6 +57,7 @@ Section "install"
 
     ; ---- 主程序（EXE 已包含全部 Python 依赖）----
     File "${EXEFILE}"
+    File "icon.ico"
     File "${LAUNCHERVBS}"
     File "Super_Hi_Vision_App.pyw"
     File "Create_Desktop_Shortcut.vbs"

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Super Hi Vision - 高级超高清屏幕录制工具 (PyQt5现代化版本)
-版本: 1.5.15
+版本: 1.5.16
 使用PyQt5构建现代化界面，保持原有录制逻辑不变
 支持中英文语言切换
 支持多主题切换
@@ -108,7 +108,7 @@ if not check_and_install_pyqt5():
         "程序无法启动，PyQt5 依赖不可用！\n\n"
         "请确保已安装 Python 和 pip，然后运行：\n"
         "    pip install PyQt5\n\n"
-        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.15.exe）。"
+        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.16.exe）。"
     )
     sys.exit(1)
 
@@ -151,11 +151,28 @@ except Exception:
 # ==================== 版本和版权信息 ====================
 __author__ = "QLM Network Entertainment Technology Co., Ltd."
 __copyright__ = "Copyright 2019-2025, QLM Network Entertainment Technology Co., Ltd."
-__version__ = "1.5.15"
+__version__ = "1.5.16"
 __license__ = "MIT"
 __email__ = "qlm@qlm.org.cn"
 __website__ = "https://team.qlm.org.cn"
 __team__ = "SevenZeroMeowTeam"
+
+# ==================== 应用图标 ====================
+def _app_icon_path():
+    """定位应用图标：打包版从 _MEIPASS 提取，源码版从脚本目录"""
+    if getattr(sys, 'frozen', False):
+        base = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, 'icon.ico')
+
+
+def _load_app_icon():
+    """加载应用图标（文件缺失时返回空图标，不报错）"""
+    path = _app_icon_path()
+    if os.path.exists(path):
+        return QIcon(path)
+    return QIcon()
 
 # ==================== 主题管理器 ====================
 class ThemeManager:
@@ -728,6 +745,7 @@ class ScreenRecorderApp(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        self.setWindowIcon(_load_app_icon())
         self.recording = False
         self.paused = False
         self.video_writer = None
@@ -2170,6 +2188,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Super Hi Vision")
     app.setApplicationVersion(__version__)
+    app.setWindowIcon(_load_app_icon())
 
     translator = QTranslator(app)
     locale = QLibraryInfo.location(QLibraryInfo.TranslationsPath)

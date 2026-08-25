@@ -1,5 +1,18 @@
 # Super Hi Vision Changelog
 
+## Version 1.5.16 (2026-08-26)
+
+### New Features
+
+- **新增自定义应用图标**（AI 辅助设计，`icon.ico`）
+  - 新增 `icon.ico`：蓝紫渐变圆角方块 + 白色摄像机 + 红色录制点，代表「高清录屏」
+  - 打包后的 EXE 不再使用 PyInstaller 默认的「保存/软盘」图标，改用自定义图标
+  - 主程序窗口标题栏 / 任务栏也显示新图标（打包版从 `_MEIPASS` 加载，源码版从脚本目录加载）
+  - NSIS 安装包与卸载程序同样使用新图标
+  - 新增 `generate_icon.py` 图标生成脚本，可随时重新生成/调整图标
+
+---
+
 ## Version 1.5.15 (2026-08-26)
 
 ### New Features
@@ -183,4 +196,4 @@ Super Hi Vision is a professional HD screen recording tool featuring:
 
 **Copyright**: Copyright 2019-2025 QLM Network Entertainment Technology Co., Ltd.
 **Website**: https://team.qlm.org.cn
-**Version**: 1.5.15
+**Version**: 1.5.16

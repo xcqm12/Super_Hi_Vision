@@ -41,7 +41,7 @@ import pyaudio
 # 版权信息
 __author__ = "七零喵网络互娱科技有限公司"
 __copyright__ = "Copyright 2019-2025, 七零喵网络互娱科技有限公司"
-__version__ = "1.5.15"  # 二次元主题
+__version__ = "1.5.16"  # 应用图标
 __license__ = "MIT"
 __email__ = "qlm@qlm.org.cn"
 __website__ = "https://team.qlm.org.cn"
