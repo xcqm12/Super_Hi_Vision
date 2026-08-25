@@ -3,7 +3,7 @@
 ' Double-click to run. No console window is shown.
 '
 ' Launch priority:
-'   1. Packaged EXE  (SuperHiVision_v1.5.14.exe)
+'   1. Packaged EXE  (SuperHiVision_v1.5.15.exe)
 '   2. pythonw.exe running source  (Super_Hi_Vision_PyQt.py)
 '   3. Super_Hi_Vision_App.pyw (pythonw launcher)
 '   4. python.exe (fallback)
@@ -21,7 +21,7 @@ Set shell = CreateObject("WScript.Shell")
 appDir = fso.GetParentFolderName(WScript.ScriptFullName)
 
 ' ---------- 1. Prefer the packaged EXE ----------
-exePath = appDir & "\SuperHiVision_v1.5.14.exe"
+exePath = appDir & "\SuperHiVision_v1.5.15.exe"
 If fso.FileExists(exePath) Then
     shell.Run """" & exePath & """", 1, False
     WScript.Quit

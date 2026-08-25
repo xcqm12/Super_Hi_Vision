@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Super Hi Vision - 高级超高清屏幕录制工具 (PyQt5现代化版本)
-版本: 1.5.14
+版本: 1.5.15
 使用PyQt5构建现代化界面，保持原有录制逻辑不变
 支持中英文语言切换
 支持多主题切换
@@ -108,7 +108,7 @@ if not check_and_install_pyqt5():
         "程序无法启动，PyQt5 依赖不可用！\n\n"
         "请确保已安装 Python 和 pip，然后运行：\n"
         "    pip install PyQt5\n\n"
-        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.14.exe）。"
+        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.15.exe）。"
     )
     sys.exit(1)
 
@@ -137,6 +137,7 @@ import numpy as np
 import pyaudio
 import wave
 import shutil
+import urllib.request
 
 # ==================== 全局热键（pynput，可选依赖） ====================
 # 热键监听在后台线程运行，通过 pyqtSignal 回到主线程，保证线程安全
@@ -150,7 +151,7 @@ except Exception:
 # ==================== 版本和版权信息 ====================
 __author__ = "QLM Network Entertainment Technology Co., Ltd."
 __copyright__ = "Copyright 2019-2025, QLM Network Entertainment Technology Co., Ltd."
-__version__ = "1.5.14"
+__version__ = "1.5.15"
 __license__ = "MIT"
 __email__ = "qlm@qlm.org.cn"
 __website__ = "https://team.qlm.org.cn"
@@ -262,6 +263,25 @@ class ThemeManager:
                 'button_pressed': '#ba68c8',
                 'input_bg': '#252540',
                 'group_bg': '#2d2d44'
+            },
+            'anime': {
+                'name': 'Anime',
+                # 二次元主题：半透明深色面板 + 随机二次元背景图（https://www.dmoe.cc/random.php）
+                # 背景图由主窗口 paintEvent 绘制，面板使用 rgba 半透明让背景透出
+                'primary': 'rgba(22, 26, 46, 165)',
+                'secondary': 'rgba(30, 34, 60, 140)',
+                'accent': '#ff6ec7',
+                'text': '#ffffff',
+                'text_light': '#d0d0e0',
+                'border': 'rgba(255, 110, 199, 130)',
+                'success': '#4ecca3',
+                'info': '#64b5f6',
+                'warning': '#ffb74d',
+                'danger': '#ff5252',
+                'button_hover': '#ff8ad4',
+                'button_pressed': '#ffb0e3',
+                'input_bg': 'rgba(40, 44, 75, 190)',
+                'group_bg': 'rgba(44, 48, 82, 130)'
             }
         }
         self.current_theme = 'dark'
@@ -703,6 +723,8 @@ class ScreenRecorderApp(QMainWindow):
     recording_resumed = pyqtSignal()
     # 全局热键触发信号（pynput 后台线程 -> 主线程）
     hotkey_triggered = pyqtSignal(str)
+    # 二次元主题背景图就绪信号（下载线程 -> 主线程）
+    anime_bg_ready = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -752,6 +774,11 @@ class ScreenRecorderApp(QMainWindow):
         self.hotkey_triggered.connect(self._on_hotkey_triggered)
         self._hotkey_listener = None
         self._drawing_window = None
+
+        # 二次元主题背景
+        self.anime_bg_pixmap = None
+        self.anime_bg_loading = False
+        self.anime_bg_ready.connect(self._on_anime_bg_ready)
 
         self.init_audio_devices()
         self.init_ui()
@@ -861,7 +888,7 @@ class ScreenRecorderApp(QMainWindow):
 
         theme_label = QLabel(self.language_manager.get_text('theme') + ":")
         self.theme_combo = QComboBox()
-        self.theme_combo.addItems(['Dark', 'Light', 'Ocean', 'Sunset', 'Forest', 'Purple'])
+        self.theme_combo.addItems(['Dark', 'Light', 'Ocean', 'Sunset', 'Forest', 'Purple', 'Anime'])
         self.theme_combo.currentTextChanged.connect(self.change_theme)
 
         lang_label = QLabel(self.language_manager.get_text('language') + ":")
@@ -1253,7 +1280,8 @@ class ScreenRecorderApp(QMainWindow):
             'Ocean': 'ocean',
             'Sunset': 'sunset',
             'Forest': 'forest',
-            'Purple': 'purple'
+            'Purple': 'purple',
+            'Anime': 'anime'
         }
         theme_key = theme_map.get(theme_name, 'dark')
         self.theme_manager.set_theme(theme_key)
@@ -1264,6 +1292,75 @@ class ScreenRecorderApp(QMainWindow):
         theme = self.theme_manager.get_theme()
         style_sheet = self.theme_manager.generate_style_sheet()
         self.setStyleSheet(style_sheet)
+        # 二次元主题：异步加载随机背景图
+        self.load_anime_background()
+
+    def load_anime_background(self):
+        """加载二次元主题背景（异步从 dmoe.cc 获取随机图片）"""
+        if self.theme_manager.current_theme != 'anime':
+            self.anime_bg_pixmap = None
+            self.update()
+            return
+
+        # 优先显示本地缓存，避免每次切换都等待网络
+        cache = os.path.join(tempfile.gettempdir(), "super_hi_vision_anime_bg.jpg")
+        if os.path.exists(cache):
+            pm = QPixmap(cache)
+            if not pm.isNull():
+                self.anime_bg_pixmap = pm
+                self.update()
+
+        if self.anime_bg_loading:
+            return
+        self.anime_bg_loading = True
+        threading.Thread(target=self._download_anime_bg, args=(cache,), daemon=True).start()
+
+    def _download_anime_bg(self, cache_path):
+        """后台线程下载随机二次元背景图（dmoe.cc 国内 API，禁用系统代理直连）"""
+        try:
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            req = urllib.request.Request(
+                "https://www.dmoe.cc/random.php",
+                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            )
+            with opener.open(req, timeout=15) as resp:
+                data = resp.read()
+            if data and len(data) > 1000:
+                with open(cache_path, 'wb') as f:
+                    f.write(data)
+                self.anime_bg_ready.emit(cache_path)
+                print("✅ 二次元背景图已更新")
+            else:
+                print("❌ 二次元背景下载内容无效")
+        except Exception as e:
+            print(f"❌ 二次元背景下载失败: {e}")
+        finally:
+            self.anime_bg_loading = False
+
+    def _on_anime_bg_ready(self, path):
+        """主线程：加载下载完成的二次元背景图"""
+        pm = QPixmap(path)
+        if not pm.isNull():
+            self.anime_bg_pixmap = pm
+            self.update()
+
+    def paintEvent(self, event):
+        """绘制窗口背景（二次元主题绘制随机图片背景 + 遮罩）"""
+        if (self.theme_manager.current_theme == 'anime'
+                and self.anime_bg_pixmap is not None
+                and not self.anime_bg_pixmap.isNull()):
+            painter = QPainter(self)
+            painter.fillRect(self.rect(), QColor(22, 26, 46))
+            pm = self.anime_bg_pixmap
+            scaled = pm.scaled(self.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+            x = (scaled.width() - self.width()) // 2
+            y = (scaled.height() - self.height()) // 2
+            painter.drawPixmap(0, 0, scaled, x, y, self.width(), self.height())
+            # 半透明深色遮罩，保证控件可读性
+            painter.fillRect(self.rect(), QColor(10, 10, 30, 100))
+            painter.end()
+        else:
+            super().paintEvent(event)
 
     def change_language(self, lang_text):
         """改变语言"""

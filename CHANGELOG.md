@@ -1,5 +1,17 @@
 # Super Hi Vision Changelog
 
+## Version 1.5.15 (2026-08-26)
+
+### New Features
+
+- **新增「二次元」主题**（`Super_Hi_Vision_PyQt.py`）
+  - 主题下拉框新增 `Anime` 选项，切换后自动从 [dmoe.cc](https://www.dmoe.cc/random.php) 随机获取二次元图片作为窗口背景
+  - 后台线程异步下载（不阻塞界面），带本地缓存（`%TEMP%/super_hi_vision_anime_bg.jpg`），切换主题立即显示上次缓存、后台刷新新图
+  - 半透明深色面板（rgba）+ 背景遮罩，保证控件可读性；无网络时自动回退为纯色深色主题
+  - 背景图居中裁剪缩放填充窗口，适配不同分辨率
+
+---
+
 ## Version 1.5.14 (2026-08-26)
 
 ### Bug Fixes
@@ -171,4 +183,4 @@ Super Hi Vision is a professional HD screen recording tool featuring:
 
 **Copyright**: Copyright 2019-2025 QLM Network Entertainment Technology Co., Ltd.
 **Website**: https://team.qlm.org.cn
-**Version**: 1.5.14
+**Version**: 1.5.15
