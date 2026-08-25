@@ -41,7 +41,7 @@ import pyaudio
 # 版权信息
 __author__ = "七零喵网络互娱科技有限公司"
 __copyright__ = "Copyright 2019-2025, 七零喵网络互娱科技有限公司"
-__version__ = "1.5.5"  # 现代化UI设计、提升可视性
+__version__ = "1.5.14"  # 热键修复、全局监听优化
 __license__ = "MIT"
 __email__ = "qlm@qlm.org.cn"
 __website__ = "https://team.qlm.org.cn"
@@ -1942,47 +1942,163 @@ class ScreenRecorder:
         messagebox.showinfo("刷新完成", f"找到 {len(self.audio_devices)} 个音频设备")
     
     def apply_hotkeys(self):
-        """应用热键设置"""
-        messagebox.showinfo("热键设置", "热键设置已应用！\n\n注意：部分热键可能需要重启程序才能生效")
-    
-    def setup_hotkeys(self):
-        """设置热键监听"""
+        """应用热键设置（立即重启监听器生效）"""
+        # 重启热键监听器使新设置立即生效
+        if hasattr(self, 'keyboard_listener'):
+            try:
+                self.keyboard_listener.stop()
+            except Exception:
+                pass
+        self.setup_hotkeys()
+        messagebox.showinfo("热键设置", "热键设置已应用！")
+
+    def _parse_hotkey(self, hotkey_str):
+        """解析热键字符串（如 F9、Ctrl+Shift+F9）-> (mods列表, key对象) 或 None"""
+        if not hotkey_str:
+            return None
+        parts = [p.strip() for p in hotkey_str.split('+')]
+        mods = []
+        for m in parts[:-1]:
+            ml = m.lower()
+            if ml in ('ctrl', 'control'):
+                mods.append('ctrl')
+            elif ml == 'alt':
+                mods.append('alt')
+            elif ml == 'shift':
+                mods.append('shift')
+            elif ml in ('win', 'cmd'):
+                mods.append('win')
+            else:
+                return None
+        key_part = parts[-1].strip()
+        upper = key_part.upper()
+        if len(upper) > 1 and upper[0] == 'F' and upper[1:].isdigit():
+            n = int(upper[1:])
+            if 1 <= n <= 24:
+                return mods, getattr(keyboard.Key, f'f{n}')
+        name_map = {
+            'ESC': keyboard.Key.esc, 'TAB': keyboard.Key.tab, 'SPACE': keyboard.Key.space,
+            'ENTER': keyboard.Key.enter, 'BACKSPACE': keyboard.Key.backspace,
+            'DEL': keyboard.Key.delete, 'DELETE': keyboard.Key.delete, 'INSERT': keyboard.Key.insert,
+            'HOME': keyboard.Key.home, 'END': keyboard.Key.end, 'PAGEUP': keyboard.Key.page_up,
+            'PAGEDOWN': keyboard.Key.page_down, 'LEFT': keyboard.Key.left, 'RIGHT': keyboard.Key.right,
+            'UP': keyboard.Key.up, 'DOWN': keyboard.Key.down,
+        }
+        if upper in name_map:
+            return mods, name_map[upper]
+        if len(key_part) == 1 and key_part.isalnum():
+            return mods, keyboard.KeyCode.from_char(key_part.lower())
+        return None
+
+    def _norm_mod(self, key):
+        """将左右修饰键归一化为 ctrl/alt/shift/win"""
+        if key in (keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r):
+            return 'ctrl'
+        if key in (keyboard.Key.alt, keyboard.Key.alt_l, keyboard.Key.alt_r):
+            return 'alt'
+        if key in (keyboard.Key.shift, keyboard.Key.shift_l, keyboard.Key.shift_r):
+            return 'shift'
+        if key in (keyboard.Key.cmd, keyboard.Key.cmd_l, keyboard.Key.cmd_r):
+            return 'win'
+        return None
+
+    def _hotkey_matches(self, event_key, target_key):
+        """比较按键是否匹配（兼容大小写）"""
+        if isinstance(target_key, keyboard.Key):
+            return event_key == target_key
         try:
-            # 创建键盘监听器
+            if hasattr(event_key, 'char') and event_key.char and hasattr(target_key, 'char'):
+                return event_key.char.lower() == target_key.char.lower()
+        except Exception:
+            pass
+        return False
+
+    def setup_hotkeys(self):
+        """设置热键监听（支持自定义热键 + 修饰键组合，线程安全回调到主线程）"""
+        try:
+            # 读取自定义热键（支持 "F9"、"Ctrl+Shift+F9" 等格式）
+            hotkey_map = {}
+            for action, var_name in [('start_pause', 'start_hotkey_var'),
+                                     ('stop', 'stop_hotkey_var'),
+                                     ('screenshot', 'screenshot_hotkey_var')]:
+                var = getattr(self, var_name, None)
+                if var is not None:
+                    parsed = self._parse_hotkey(var.get())
+                    if parsed is not None:
+                        hotkey_map[action] = parsed
+            # F12 画图热键（固定）
+            drawing_parsed = self._parse_hotkey('F12')
+            if drawing_parsed is not None:
+                hotkey_map['drawing'] = drawing_parsed
+
+            state = {'mods': set(), 'last_fire': 0.0}
+
             def on_press(key):
                 try:
-                    if hasattr(key, 'char') and key.char:
-                        key_char = key.char.lower()
-                        # 画图工具热键
-                        if hasattr(self, 'drawing_tool') and self.drawing_tool.drawing_window is not None and self.drawing_tool.drawing_window.winfo_viewable():
-                            if key_char == 'c':  # 清除绘制
-                                self.drawing_tool.clear_all()
-                            elif key == keyboard.Key.esc:  # 退出画图
-                                self.drawing_tool.drawing_window.withdraw()
-                    
-                    # 功能热键
-                    if key == keyboard.Key.f9:
-                        if self.recording:
-                            self.pause_recording()
-                        else:
-                            self.start_recording()
-                    elif key == keyboard.Key.f10 and self.recording:
-                        self.stop_recording()
-                    elif key == keyboard.Key.f11:
-                        self.take_screenshot()
-                    elif key == keyboard.Key.f12:
-                        self.open_drawing_tool()
-                        
+                    norm = self._norm_mod(key)
+                    if norm is not None:
+                        state['mods'].add(norm)
+                        return
+
+                    # 画图工具热键（窗口可见时生效）
+                    drawing_visible = (hasattr(self, 'drawing_tool')
+                                       and self.drawing_tool.drawing_window is not None
+                                       and self.drawing_tool.drawing_window.winfo_viewable())
+                    if drawing_visible:
+                        if key == keyboard.Key.esc:  # 退出画图（修复：esc 不再被 char 分支吞掉）
+                            self.root.after(0, self.drawing_tool.drawing_window.withdraw)
+                            return
+                        if hasattr(key, 'char') and key.char and key.char.lower() == 'c':  # 清除绘制
+                            self.root.after(0, self.drawing_tool.clear_all)
+                            return
+
+                    # 功能热键（支持自定义 + 修饰键组合）
+                    now = time.time()
+                    for action, (mods, target_key) in hotkey_map.items():
+                        if set(mods) != state['mods']:
+                            continue
+                        if self._hotkey_matches(key, target_key):
+                            # 防抖：避免按住键重复触发
+                            if now - state['last_fire'] > 0.35:
+                                state['last_fire'] = now
+                                self._trigger_hotkey_action(action)
+                            break
                 except Exception as e:
                     print(f"热键处理错误: {e}")
-            
+
+            def on_release(key):
+                norm = self._norm_mod(key)
+                if norm is not None:
+                    state['mods'].discard(norm)
+
             # 启动监听器
-            self.keyboard_listener = keyboard.Listener(on_press=on_press)
+            self.keyboard_listener = keyboard.Listener(on_press=on_press, on_release=on_release)
+            self.keyboard_listener.daemon = True
             self.keyboard_listener.start()
-            print("✅ 热键监听器已启动")
-            
+            print(f"✅ 热键监听器已启动: {hotkey_map}")
+
         except Exception as e:
             print(f"❌ 热键设置失败: {e}")
+
+    def _trigger_hotkey_action(self, action):
+        """在主线程执行热键动作（pynput 回调线程 -> root.after）"""
+        def do_action():
+            try:
+                if action == 'start_pause':
+                    if self.recording:
+                        self.pause_recording()  # 切换暂停/恢复
+                    else:
+                        self.start_recording()
+                elif action == 'stop':
+                    if self.recording:
+                        self.stop_recording()
+                elif action == 'screenshot':
+                    self.take_screenshot()
+                elif action == 'drawing':
+                    self.open_drawing_tool()
+            except Exception as e:
+                print(f"❌ 热键动作执行失败 [{action}]: {e}")
+        self.root.after(0, do_action)
     
     def get_icon_path(self):
         """获取图标路径"""

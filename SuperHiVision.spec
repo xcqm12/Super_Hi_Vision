@@ -12,6 +12,7 @@ a = Analysis(
     hiddenimports=[
         'cv2', 'PIL', 'numpy', 'pyaudio', 'wave', 'struct', 'math',
         'PyQt5', 'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets',
+        'pynput', 'pynput.keyboard', 'pynput.mouse',
     ],
     hookspath=[],
     hooksconfig={},
@@ -34,7 +35,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='SuperHiVision_v1.5.13',
+    name='SuperHiVision_v1.5.14',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

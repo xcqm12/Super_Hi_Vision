@@ -278,7 +278,7 @@ def run_screen_recorder():
         base_dir = os.path.dirname(os.path.abspath(__file__))
 
         # 1. 优先启动已打包的 EXE（应用模式，无控制台）
-        exe_path = os.path.join(base_dir, "SuperHiVision_v1.5.13.exe")
+        exe_path = os.path.join(base_dir, "SuperHiVision_v1.5.14.exe")
         if os.path.exists(exe_path):
             print(f"\n✅ 启动已打包的应用: {exe_path}")
             try:

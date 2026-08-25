@@ -1,6 +1,6 @@
 name: Build & Release
 
-# 推送 v* 标签（如 v1.5.13）时触发：自动打包 exe + NSIS 安装包并发布正式版
+# 推送 v* 标签（如 v1.5.14）时触发：自动打包 exe + NSIS 安装包并发布正式版
 on:
   push:
     tags:
@@ -25,7 +25,7 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller PyQt5 opencv-python pillow numpy pyaudio
+          pip install pyinstaller PyQt5 opencv-python pillow numpy pyaudio pynput
 
       - name: Download FFmpeg (win64 static)
         shell: pwsh
@@ -56,8 +56,8 @@ jobs:
       - name: Prepare NSIS input files
         shell: pwsh
         run: |
-          Copy-Item -Path "dist/SuperHiVision_v1.5.13.exe" -Destination "SuperHiVision_v1.5.13.exe" -Force
-          Get-ChildItem "SuperHiVision_v1.5.13.exe" | Select-Object Name, Length
+          Copy-Item -Path "dist/SuperHiVision_v1.5.14.exe" -Destination "SuperHiVision_v1.5.14.exe" -Force
+          Get-ChildItem "SuperHiVision_v1.5.14.exe" | Select-Object Name, Length
 
       - name: Build NSIS installer
         shell: pwsh
@@ -69,8 +69,8 @@ jobs:
         with:
           name: SuperHiVision-${{ github.ref_name }}
           path: |
-            dist/SuperHiVision_v1.5.13.exe
-            SuperHiVision_Setup_v1.5.13.exe
+            dist/SuperHiVision_v1.5.14.exe
+            SuperHiVision_Setup_v1.5.14.exe
 
       - name: Create GitHub Release (正式版)
         uses: softprops/action-gh-release@v2
@@ -80,8 +80,8 @@ jobs:
             ## Super Hi Vision ${{ github.ref_name }} 正式版
 
             ### 📦 包含内容
-            - **SuperHiVision_v1.5.13.exe** — 单文件绿色版（约 95MB，无需安装 Python）
-            - **SuperHiVision_Setup_v1.5.13.exe** — NSIS 完整安装包（含 FFmpeg，自动创建桌面/开始菜单快捷方式）
+            - **SuperHiVision_v1.5.14.exe** — 单文件绿色版（约 95MB，无需安装 Python）
+            - **SuperHiVision_Setup_v1.5.14.exe** — NSIS 完整安装包（含 FFmpeg，自动创建桌面/开始菜单快捷方式）
 
             ### 🚀 使用说明
             - **绿色版**：直接双击即可运行
@@ -91,7 +91,7 @@ jobs:
             - Windows 10 / 11 64 位
             - 无需安装 Python / VC++ 运行库（已内置）
           files: |
-            dist/SuperHiVision_v1.5.13.exe
-            SuperHiVision_Setup_v1.5.13.exe
+            dist/SuperHiVision_v1.5.14.exe
+            SuperHiVision_Setup_v1.5.14.exe
           draft: false
           prerelease: false

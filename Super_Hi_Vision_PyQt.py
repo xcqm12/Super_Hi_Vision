@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Super Hi Vision - 高级超高清屏幕录制工具 (PyQt5现代化版本)
-版本: 1.5.13
+版本: 1.5.14
 使用PyQt5构建现代化界面，保持原有录制逻辑不变
 支持中英文语言切换
 支持多主题切换
@@ -108,7 +108,7 @@ if not check_and_install_pyqt5():
         "程序无法启动，PyQt5 依赖不可用！\n\n"
         "请确保已安装 Python 和 pip，然后运行：\n"
         "    pip install PyQt5\n\n"
-        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.13.exe）。"
+        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.14.exe）。"
     )
     sys.exit(1)
 
@@ -138,10 +138,19 @@ import pyaudio
 import wave
 import shutil
 
+# ==================== 全局热键（pynput，可选依赖） ====================
+# 热键监听在后台线程运行，通过 pyqtSignal 回到主线程，保证线程安全
+try:
+    from pynput import keyboard as _pynput_keyboard
+    PYNPUT_AVAILABLE = True
+except Exception:
+    _pynput_keyboard = None
+    PYNPUT_AVAILABLE = False
+
 # ==================== 版本和版权信息 ====================
 __author__ = "QLM Network Entertainment Technology Co., Ltd."
 __copyright__ = "Copyright 2019-2025, QLM Network Entertainment Technology Co., Ltd."
-__version__ = "1.5.13"
+__version__ = "1.5.14"
 __license__ = "MIT"
 __email__ = "qlm@qlm.org.cn"
 __website__ = "https://team.qlm.org.cn"
@@ -692,6 +701,8 @@ class ScreenRecorderApp(QMainWindow):
     recording_stopped = pyqtSignal()
     recording_paused = pyqtSignal()
     recording_resumed = pyqtSignal()
+    # 全局热键触发信号（pynput 后台线程 -> 主线程）
+    hotkey_triggered = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -738,9 +749,16 @@ class ScreenRecorderApp(QMainWindow):
         }
         self.load_hotkeys()
 
+        self.hotkey_triggered.connect(self._on_hotkey_triggered)
+        self._hotkey_listener = None
+        self._drawing_window = None
+
         self.init_audio_devices()
         self.init_ui()
         self.apply_theme()
+
+        # 启动全局热键监听
+        self.update_global_hotkeys()
 
     def load_hotkeys(self):
         """加载热键配置"""
@@ -1673,6 +1691,16 @@ class ScreenRecorderApp(QMainWindow):
 
             self.stop_recording()
 
+        # 停止全局热键监听
+        self._stop_global_hotkeys()
+
+        # 关闭画图窗口
+        if getattr(self, '_drawing_window', None) is not None:
+            try:
+                self._drawing_window.close()
+            except Exception:
+                pass
+
         shutil.rmtree(self.temp_dir, ignore_errors=True)
         event.accept()
 
@@ -1707,8 +1735,252 @@ class ScreenRecorderApp(QMainWindow):
         QMessageBox.information(self, "Reset", "Hotkeys have been reset to defaults")
 
     def update_global_hotkeys(self):
-        """更新全局热键监听"""
-        pass
+        """更新全局热键监听（pynput 后台线程 + 信号回到主线程）"""
+        self._stop_global_hotkeys()
+
+        if not PYNPUT_AVAILABLE:
+            print("⚠️ pynput 不可用，全局热键已禁用（请 pip install pynput）")
+            return
+
+        try:
+            kb = _pynput_keyboard
+
+            def _norm_mod(key):
+                """将左右修饰键归一化为 ctrl/alt/shift/win"""
+                if key in (kb.Key.ctrl, kb.Key.ctrl_l, kb.Key.ctrl_r):
+                    return 'ctrl'
+                if key in (kb.Key.alt, kb.Key.alt_l, kb.Key.alt_r):
+                    return 'alt'
+                if key in (kb.Key.shift, kb.Key.shift_l, kb.Key.shift_r):
+                    return 'shift'
+                if key in (kb.Key.cmd, kb.Key.cmd_l, kb.Key.cmd_r):
+                    return 'win'
+                return None
+
+            # 预解析热键配置 -> {action: (mods_set, key)}
+            parsed = {}
+            for action, hotkey_str in self.hotkeys.items():
+                target = self._parse_hotkey_key(hotkey_str)
+                if target is not None:
+                    mods, key = target
+                    parsed[action] = (set(mods), key)
+                else:
+                    print(f"⚠️ 热键格式无法解析，已跳过: {action} = {hotkey_str}")
+
+            state = {'mods': set(), 'last_fire': 0.0}
+
+            def on_press(key):
+                try:
+                    norm = _norm_mod(key)
+                    if norm is not None:
+                        state['mods'].add(norm)
+                        return
+                    now = time.time()
+                    for action, (mods, target_key) in parsed.items():
+                        if state['mods'] != mods:
+                            continue
+                        if self._hotkey_key_matches(key, target_key):
+                            # 防抖：避免按住键重复触发
+                            if now - state['last_fire'] > 0.35:
+                                state['last_fire'] = now
+                                self.hotkey_triggered.emit(action)
+                            break
+                except Exception as e:
+                    print(f"热键处理错误: {e}")
+
+            def on_release(key):
+                norm = _norm_mod(key)
+                if norm is not None:
+                    state['mods'].discard(norm)
+
+            self._hotkey_listener = kb.Listener(on_press=on_press, on_release=on_release)
+            self._hotkey_listener.daemon = True
+            self._hotkey_listener.start()
+            print(f"✅ 全局热键监听已启动: {parsed}")
+        except Exception as e:
+            print(f"❌ 全局热键启动失败: {e}")
+
+    def _parse_hotkey_key(self, hotkey_str):
+        """解析 'Ctrl+Shift+F9' 之类的热键字符串 -> (mods, key) 或 None"""
+        if not hotkey_str or not PYNPUT_AVAILABLE:
+            return None
+        kb = _pynput_keyboard
+        parts = [p.strip() for p in hotkey_str.split('+')]
+        mods = []
+        for m in parts[:-1]:
+            ml = m.lower()
+            if ml == 'ctrl':
+                mods.append('ctrl')
+            elif ml == 'alt':
+                mods.append('alt')
+            elif ml == 'shift':
+                mods.append('shift')
+            elif ml == 'win':
+                mods.append('win')
+            else:
+                return None
+        key_part = parts[-1].strip()
+        upper = key_part.upper()
+        if len(upper) > 1 and upper[0] == 'F' and upper[1:].isdigit():
+            n = int(upper[1:])
+            if 1 <= n <= 24:
+                return mods, getattr(kb.Key, f'f{n}')
+        name_map = {
+            'ESC': kb.Key.esc, 'TAB': kb.Key.tab, 'SPACE': kb.Key.space,
+            'ENTER': kb.Key.enter, 'BACKSPACE': kb.Key.backspace,
+            'DEL': kb.Key.delete, 'DELETE': kb.Key.delete, 'INSERT': kb.Key.insert,
+            'HOME': kb.Key.home, 'END': kb.Key.end, 'PAGEUP': kb.Key.page_up,
+            'PAGEDOWN': kb.Key.page_down, 'LEFT': kb.Key.left, 'RIGHT': kb.Key.right,
+            'UP': kb.Key.up, 'DOWN': kb.Key.down,
+        }
+        if upper in name_map:
+            return mods, name_map[upper]
+        if len(key_part) == 1 and key_part.isalnum():
+            return mods, kb.KeyCode.from_char(key_part.lower())
+        return None
+
+    def _hotkey_key_matches(self, event_key, target_key):
+        """比较按键是否匹配（兼容大小写/左右修饰键）"""
+        if not PYNPUT_AVAILABLE:
+            return False
+        kb = _pynput_keyboard
+        if isinstance(target_key, kb.Key):
+            return event_key == target_key
+        try:
+            if hasattr(event_key, 'char') and event_key.char and hasattr(target_key, 'char'):
+                return event_key.char.lower() == target_key.char.lower()
+        except Exception:
+            pass
+        return False
+
+    def _stop_global_hotkeys(self):
+        """停止全局热键监听器"""
+        listener = getattr(self, '_hotkey_listener', None)
+        if listener is not None:
+            try:
+                listener.stop()
+            except Exception:
+                pass
+            self._hotkey_listener = None
+
+    def _on_hotkey_triggered(self, action):
+        """主线程处理热键动作"""
+        try:
+            if action == 'start_pause':
+                self.toggle_recording()
+            elif action == 'stop':
+                self.stop_recording()
+            elif action == 'screenshot':
+                self.take_screenshot()
+            elif action == 'drawing':
+                self.open_drawing_tool()
+        except Exception as e:
+            print(f"❌ 热键动作执行失败 [{action}]: {e}")
+
+    def open_drawing_tool(self):
+        """打开/切换画图工具窗口"""
+        try:
+            if self._drawing_window is None:
+                self._drawing_window = DrawingWindow(self.drawing_tool)
+                self._drawing_window.setAttribute(Qt.WA_DeleteOnClose, False)
+            if self._drawing_window.isVisible():
+                self._drawing_window.hide()
+            else:
+                self._drawing_window.show()
+                self._drawing_window.raise_()
+                self._drawing_window.activateWindow()
+        except Exception as e:
+            print(f"❌ 打开画图工具失败: {e}")
+
+# ==================== 画图工具窗口（PyQt） ====================
+class DrawingWindow(QWidget):
+    """画图工具控制面板：配置画笔/矩形/圆形、颜色、粗细，清除叠加绘制"""
+    def __init__(self, drawing_tool, parent=None):
+        super().__init__(parent)
+        self.drawing_tool = drawing_tool
+        self.setWindowTitle("🎨 画图工具")
+        self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
+        self.resize(320, 360)
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+
+        # 工具选择
+        tool_group = QGroupBox("工具")
+        tool_layout = QHBoxLayout()
+        self.tool_btns = {}
+        for text, value in [("画笔", "pen"), ("矩形", "rectangle"), ("圆形", "circle")]:
+            btn = QPushButton(text)
+            btn.setCheckable(True)
+            btn.setChecked(value == self.drawing_tool.current_tool)
+            btn.clicked.connect(lambda checked, v=value: self._set_tool(v))
+            self.tool_btns[value] = btn
+            tool_layout.addWidget(btn)
+        tool_group.setLayout(tool_layout)
+        layout.addWidget(tool_group)
+
+        # 颜色选择
+        color_group = QGroupBox("颜色")
+        color_layout = QHBoxLayout()
+        self.color_preview = QLabel()
+        self.color_preview.setFixedSize(32, 32)
+        self._update_color_preview()
+        color_layout.addWidget(self.color_preview)
+        color_btn = QPushButton("选择颜色")
+        color_btn.clicked.connect(self._choose_color)
+        color_layout.addWidget(color_btn)
+        color_layout.addStretch()
+        color_group.setLayout(color_layout)
+        layout.addWidget(color_group)
+
+        # 线条粗细
+        thickness_group = QGroupBox("线条粗细")
+        thick_layout = QVBoxLayout()
+        self.thickness_label = QLabel(f"粗细: {self.drawing_tool.current_thickness}")
+        self.thickness_slider = QSlider(Qt.Horizontal)
+        self.thickness_slider.setRange(1, 20)
+        self.thickness_slider.setValue(self.drawing_tool.current_thickness)
+        self.thickness_slider.valueChanged.connect(self._set_thickness)
+        self.thickness_slider.valueChanged.connect(
+            lambda v: self.thickness_label.setText(f"粗细: {v}"))
+        thick_layout.addWidget(self.thickness_label)
+        thick_layout.addWidget(self.thickness_slider)
+        thickness_group.setLayout(thick_layout)
+        layout.addWidget(thickness_group)
+
+        # 控制按钮
+        control_group = QGroupBox("控制")
+        control_layout = QVBoxLayout()
+        clear_btn = QPushButton("清除所有")
+        clear_btn.setStyleSheet("background-color: #e74c3c; color: white; font-weight: bold;")
+        clear_btn.clicked.connect(self.drawing_tool.clear_all)
+        control_layout.addWidget(clear_btn)
+        control_group.setLayout(control_layout)
+        layout.addWidget(control_group)
+
+        layout.addStretch()
+
+    def _set_tool(self, tool):
+        self.drawing_tool.set_tool(tool)
+        for value, btn in self.tool_btns.items():
+            btn.setChecked(value == tool)
+
+    def _choose_color(self):
+        from PyQt5.QtWidgets import QColorDialog
+        r, g, b = self.drawing_tool.current_color
+        color = QColorDialog.getColor(QColor(r, g, b), self, "选择颜色")
+        if color.isValid():
+            self.drawing_tool.set_color((color.red(), color.green(), color.blue()))
+            self._update_color_preview()
+
+    def _update_color_preview(self):
+        r, g, b = self.drawing_tool.current_color
+        self.color_preview.setStyleSheet(
+            f"background-color: rgb({r},{g},{b}); border: 1px solid #888888;")
+
+    def _set_thickness(self, value):
+        self.drawing_tool.set_thickness(value)
 
 # ==================== 热键设置对话框 ====================
 class HotkeyDialog(QDialog):

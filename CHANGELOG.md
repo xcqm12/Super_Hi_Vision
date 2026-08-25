@@ -1,5 +1,23 @@
 # Super Hi Vision Changelog
 
+## Version 1.5.14 (2026-08-26)
+
+### Bug Fixes
+
+- **修复热键无法正常使用问题**（`Super_Hi_Vision_PyQt.py` 为主，`Super_Hi_Vision.py` 同步修复）
+  - 根因：`Super_Hi_Vision_PyQt.py`（打包入口版本）的 `update_global_hotkeys()` 是空函数，全局热键监听从未启动 → 打包版 F9/F10/F11/F12 全部无效
+  - PyQt 版本：实现完整全局热键监听（pynput 后台线程 + `pyqtSignal` 跨线程回到主线程，线程安全）
+    - 支持自定义热键及修饰键组合（`F9`、`Ctrl+F9`、`Ctrl+Shift+F9` 等），修改/重置热键后立即生效
+    - 增加防抖，避免按住热键重复触发；程序退出时自动停止监听器
+  - Tkinter 版本：`setup_hotkeys()` 支持读取 UI 中自定义热键（开始/暂停、停止、截图），不再写死 F9/F10/F11
+    - 修复 Esc 退出画图失效的 bug（原先被 `hasattr(key,'char')` 分支吞掉，永不执行）
+    - 「应用热键设置」立即重启监听器生效，不再需要重启程序
+    - 热键回调统一通过 `root.after` 调度到主线程，避免跨线程操作 Tk 控件
+  - F12 画图热键：PyQt 版本新增画图工具面板（工具/颜色/粗细/清除叠加绘制），与 Tkinter 版本功能对齐
+  - PyInstaller spec 增加 `pynput` 到 hiddenimports，确保打包后热键依赖可用
+
+---
+
 ## Version 1.5.13 (2026-08-25)
 
 ### Bug Fixes
@@ -153,4 +171,4 @@ Super Hi Vision is a professional HD screen recording tool featuring:
 
 **Copyright**: Copyright 2019-2025 QLM Network Entertainment Technology Co., Ltd.
 **Website**: https://team.qlm.org.cn
-**Version**: 1.5.13
+**Version**: 1.5.14
