@@ -34,7 +34,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='SuperHiVision_v1.5.10',
+    name='SuperHiVision_v1.5.13',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

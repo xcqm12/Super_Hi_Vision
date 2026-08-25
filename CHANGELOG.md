@@ -1,5 +1,18 @@
 # Super Hi Vision Changelog
 
+## Version 1.5.13 (2026-08-25)
+
+### Bug Fixes
+
+- **修复录屏与合成视频没有声音问题**（`Super_Hi_Vision_PyQt.py` 为主，`Super_Hi_Vision.py` 同步修复）
+  - 根因 1：`Super_Hi_Vision_PyQt.py` 的 `merge_audio_video()` 是空函数，音频帧虽被录制但从不合成进视频 → 最终视频永远无声；已实现完整音视频合并（FFmpeg `-c:v copy` 不重编码视频，音频转 AAC，保证音视频同步）
+  - 根因 2：`AudioRecorderThread` 默认以双声道打开音频流，单声道麦克风会打开失败 → 录屏时无声；已改为自动适配设备声道数与采样率（`min(maxInputChannels, 2)` + 设备默认采样率）
+  - 根因 3：音频设备默认选中第一个枚举设备（常为虚拟/静音设备），现改为默认选中系统默认输入设备（麦克风）
+  - 停止录制时先等待音频线程结束再合并，避免丢失尾部音频帧
+  - 「测试」按钮实现真实录音 3 秒并自动播放，便于验证麦克风
+
+---
+
 ## Version 1.5.12 (2026-08-24)
 
 ### Bug Fixes
@@ -140,4 +153,4 @@ Super Hi Vision is a professional HD screen recording tool featuring:
 
 **Copyright**: Copyright 2019-2025 QLM Network Entertainment Technology Co., Ltd.
 **Website**: https://team.qlm.org.cn
-**Version**: 1.5.10
+**Version**: 1.5.13

@@ -4,7 +4,7 @@
 Super Hi Vision - Application Mode Launcher (.pyw)
 双击运行，使用 pythonw.exe 无控制台启动。
 优先级：
-  1. 同目录已打包的 SuperHiVision_v1.5.10.exe -> 直接启动
+  1. 同目录已打包的 SuperHiVision_v1.5.13.exe -> 直接启动
   2. 否则以无控制台方式运行 Super_Hi_Vision_PyQt.py 源码
 """
 
@@ -13,7 +13,7 @@ import sys
 import subprocess
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-EXE_NAME = "SuperHiVision_v1.5.10.exe"
+EXE_NAME = "SuperHiVision_v1.5.13.exe"
 MAIN_SCRIPT = "Super_Hi_Vision_PyQt.py"
 
 

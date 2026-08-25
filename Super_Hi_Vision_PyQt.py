@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Super Hi Vision - 高级超高清屏幕录制工具 (PyQt5现代化版本)
-版本: 1.5.10
+版本: 1.5.13
 使用PyQt5构建现代化界面，保持原有录制逻辑不变
 支持中英文语言切换
 支持多主题切换
@@ -108,7 +108,7 @@ if not check_and_install_pyqt5():
         "程序无法启动，PyQt5 依赖不可用！\n\n"
         "请确保已安装 Python 和 pip，然后运行：\n"
         "    pip install PyQt5\n\n"
-        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.10.exe）。"
+        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.13.exe）。"
     )
     sys.exit(1)
 
@@ -141,7 +141,7 @@ import shutil
 # ==================== 版本和版权信息 ====================
 __author__ = "QLM Network Entertainment Technology Co., Ltd."
 __copyright__ = "Copyright 2019-2025, QLM Network Entertainment Technology Co., Ltd."
-__version__ = "1.5.10"
+__version__ = "1.5.13"
 __license__ = "MIT"
 __email__ = "qlm@qlm.org.cn"
 __website__ = "https://team.qlm.org.cn"
@@ -454,7 +454,7 @@ class AudioRecorderThread(QThread):
     audio_data_signal = pyqtSignal(bytes)
     error_signal = pyqtSignal(str)
 
-    def __init__(self, device_index, sample_rate=44100, channels=2, chunk_size=1024):
+    def __init__(self, device_index, sample_rate=None, channels=None, chunk_size=1024):
         super().__init__()
         self.device_index = device_index
         self.sample_rate = sample_rate
@@ -462,16 +462,38 @@ class AudioRecorderThread(QThread):
         self.chunk_size = chunk_size
         self.running = False
         self.audio = None
+        self.stream = None
+        # 实际使用的参数（打开音频流后确定，供 WAV 写入使用）
+        self.actual_sample_rate = 44100
+        self.actual_channels = 1
 
     def run(self):
         """开始录制"""
         self.running = True
         try:
             self.audio = pyaudio.PyAudio()
-            stream = self.audio.open(
+
+            # 查询设备信息，自动适配采样率与声道数（单声道麦克风也能正常录制）
+            try:
+                dev_info = self.audio.get_device_info_by_index(self.device_index)
+            except Exception:
+                dev_info = {}
+            max_channels = int(dev_info.get('maxInputChannels', 1) or 1)
+            default_rate = int(dev_info.get('defaultSampleRate', 44100) or 44100)
+
+            # 声道数：不超过设备支持的最大声道数（上限 2），保证单声道设备可用
+            channels = self.channels or min(max_channels, 2)
+            if channels < 1:
+                channels = 1
+            # 采样率：未指定时使用设备默认采样率
+            sample_rate = self.sample_rate or default_rate
+            self.actual_channels = channels
+            self.actual_sample_rate = sample_rate
+
+            self.stream = self.audio.open(
                 format=pyaudio.paInt16,
-                channels=self.channels,
-                rate=self.sample_rate,
+                channels=channels,
+                rate=sample_rate,
                 input=True,
                 input_device_index=self.device_index,
                 frames_per_buffer=self.chunk_size
@@ -479,18 +501,27 @@ class AudioRecorderThread(QThread):
 
             while self.running:
                 try:
-                    data = stream.read(self.chunk_size, exception_on_overflow=False)
+                    data = self.stream.read(self.chunk_size, exception_on_overflow=False)
                     self.audio_data_signal.emit(data)
                 except Exception as e:
                     if self.running:
                         self.error_signal.emit(str(e))
                     break
-
-            stream.stop_stream()
-            stream.close()
-            self.audio.terminate()
         except Exception as e:
             self.error_signal.emit(str(e))
+        finally:
+            # 确保资源被释放
+            try:
+                if self.stream:
+                    self.stream.stop_stream()
+                    self.stream.close()
+            except Exception:
+                pass
+            try:
+                if self.audio:
+                    self.audio.terminate()
+            except Exception:
+                pass
 
     def stop(self):
         """停止录制"""
@@ -732,25 +763,41 @@ class ScreenRecorderApp(QMainWindow):
             pass
 
     def init_audio_devices(self):
-        """初始化音频设备"""
+        """初始化音频设备（优先选择系统默认输入设备）"""
         try:
             p = pyaudio.PyAudio()
             self.audio_devices = []
+
+            # 获取系统默认输入设备（Windows 默认麦克风）
+            default_input_index = None
+            try:
+                default_input_index = p.get_default_input_device_info().get('index')
+            except Exception:
+                pass
 
             for i in range(p.get_device_count()):
                 dev_info = p.get_device_info_by_index(i)
                 if dev_info.get('maxInputChannels', 0) > 0:
                     self.audio_devices.append({
                         'index': i,
-                        'name': dev_info.get('name', f'Device {i}')
+                        'name': dev_info.get('name', f'Device {i}'),
+                        'is_default': (i == default_input_index)
                     })
 
             p.terminate()
 
             if self.audio_devices:
-                self.audio_device_index = self.audio_devices[0]['index']
+                # 默认选中系统默认输入设备，避免选中静音/错误的设备导致录不到声音
+                default_device = next(
+                    (d for d in self.audio_devices if d.get('is_default')),
+                    self.audio_devices[0]
+                )
+                self.audio_device_index = default_device['index']
+            else:
+                self.audio_device_index = None
         except Exception as e:
             print(f"Audio device init error: {e}")
+            self.audio_device_index = None
 
     def init_ui(self):
         """初始化用户界面"""
@@ -985,6 +1032,11 @@ class ScreenRecorderApp(QMainWindow):
         if self.audio_devices:
             for device in self.audio_devices:
                 self.audio_device_combo.addItem(device['name'], device['index'])
+            # 默认选中系统默认输入设备
+            default_index = getattr(self, 'audio_device_index', None)
+            idx = self.audio_device_combo.findData(default_index)
+            if idx >= 0:
+                self.audio_device_combo.setCurrentIndex(idx)
         else:
             self.audio_device_combo.addItem("No audio device available", -1)
         device_layout.addWidget(self.audio_device_combo)
@@ -1116,8 +1168,64 @@ class ScreenRecorderApp(QMainWindow):
         self.record_audio = (state == Qt.Checked)
 
     def test_audio(self):
-        """测试音频"""
-        QMessageBox.information(self, "Test Audio", "Audio test functionality")
+        """测试音频：从所选设备录制约 3 秒并播放，验证音频设备是否可用"""
+        device_index = self.audio_device_combo.currentData()
+        if device_index is None or device_index < 0:
+            QMessageBox.warning(self, "测试失败", "没有可用的音频输入设备，请检查麦克风设置。")
+            return
+
+        try:
+            p = pyaudio.PyAudio()
+            try:
+                dev_info = p.get_device_info_by_index(device_index)
+            except Exception:
+                dev_info = {}
+
+            max_channels = int(dev_info.get('maxInputChannels', 1) or 1)
+            channels = min(max_channels, 2)
+            rate = int(dev_info.get('defaultSampleRate', 44100) or 44100)
+
+            stream = p.open(
+                format=pyaudio.paInt16,
+                channels=channels,
+                rate=rate,
+                input=True,
+                input_device_index=device_index,
+                frames_per_buffer=1024
+            )
+
+            frames = []
+            for _ in range(int(rate / 1024 * 3)):  # 录制约 3 秒
+                frames.append(stream.read(1024, exception_on_overflow=False))
+
+            stream.stop_stream()
+            stream.close()
+            p.terminate()
+
+            test_path = os.path.join(self.temp_dir, "audio_test.wav")
+            with wave.open(test_path, 'wb') as wf:
+                wf.setnchannels(channels)
+                wf.setsampwidth(2)
+                wf.setframerate(rate)
+                wf.writeframes(b''.join(frames))
+
+            # 播放测试音频
+            try:
+                import winsound
+                winsound.PlaySound(test_path, winsound.SND_FILENAME)
+            except Exception:
+                os.startfile(test_path)
+
+            device_name = dev_info.get('name', '未知设备')
+            QMessageBox.information(
+                self, "测试成功",
+                f"音频录制测试成功！\n"
+                f"设备: {device_name}\n"
+                f"声道: {channels}  采样率: {rate}\n\n"
+                f"已录制约 3 秒并自动播放，请确认能否听到声音。"
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "测试失败", f"音频测试失败: {str(e)}")
 
     def change_theme(self, theme_name):
         """改变主题"""
@@ -1212,10 +1320,13 @@ class ScreenRecorderApp(QMainWindow):
 
         if self.record_audio and self.enable_audio_check.isChecked():
             device_index = self.audio_device_combo.currentData()
-            if device_index >= 0:
+            if device_index is not None and device_index >= 0:
                 self.audio_recorder = AudioRecorderThread(device_index)
                 self.audio_recorder.audio_data_signal.connect(self.on_audio_data)
+                self.audio_recorder.error_signal.connect(self.on_audio_error)
                 self.audio_recorder.start()
+            else:
+                print("❌ 未选择有效的音频输入设备，本次录制不包含声音")
 
         self.recording_thread = QThread()
         self.recording_thread.run = self.recording_loop
@@ -1284,6 +1395,7 @@ class ScreenRecorderApp(QMainWindow):
         self.paused = True
         if self.audio_recorder:
             self.audio_recorder.stop()
+            self.audio_recorder.wait(3000)
 
         self.start_btn.setText(self.language_manager.get_text('resume_recording'))
         self.status_label.setText(self.language_manager.get_text('paused'))
@@ -1296,10 +1408,13 @@ class ScreenRecorderApp(QMainWindow):
 
         if self.record_audio and self.enable_audio_check.isChecked():
             device_index = self.audio_device_combo.currentData()
-            if device_index >= 0:
+            if device_index is not None and device_index >= 0:
                 self.audio_recorder = AudioRecorderThread(device_index)
                 self.audio_recorder.audio_data_signal.connect(self.on_audio_data)
+                self.audio_recorder.error_signal.connect(self.on_audio_error)
                 self.audio_recorder.start()
+            else:
+                print("❌ 未选择有效的音频输入设备，本次录制不包含声音")
 
         self.start_btn.setText(self.language_manager.get_text('pause_recording'))
         self.status_label.setText(self.language_manager.get_text('recording'))
@@ -1319,6 +1434,8 @@ class ScreenRecorderApp(QMainWindow):
 
         if self.audio_recorder:
             self.audio_recorder.stop()
+            # 等待音频线程结束，确保所有音频帧已被收集
+            self.audio_recorder.wait(3000)
 
         if self.video_writer:
             self.video_writer.release()
@@ -1326,6 +1443,7 @@ class ScreenRecorderApp(QMainWindow):
         # 校正视频帧率（防止快放/慢放）
         self.fix_video_playback_speed()
 
+        # 合并音视频（如果录到了音频）
         if self.audio_frames and self.output_file:
             self.merge_audio_video()
 
@@ -1342,6 +1460,10 @@ class ScreenRecorderApp(QMainWindow):
         """处理音频数据"""
         if self.recording and not self.paused:
             self.audio_frames.append(data)
+
+    def on_audio_error(self, message):
+        """音频录制错误处理"""
+        print(f"❌ 音频录制错误: {message}")
 
     def _find_ffmpeg(self):
         """查找FFmpeg可执行文件（优先程序自带 ffmpeg 目录，其次系统 PATH）"""
@@ -1432,8 +1554,84 @@ class ScreenRecorderApp(QMainWindow):
             print(f"❌ 视频帧率校正错误: {e}")
 
     def merge_audio_video(self):
-        """合并音频和视频"""
-        pass
+        """合并音频和视频：将录制到的麦克风音频合成进视频文件"""
+        if not self.audio_frames or not self.output_file:
+            print("⚠️ 音频帧为空或输出文件不存在，跳过音视频合并")
+            return
+
+        ffmpeg_cmd_exe = self._find_ffmpeg()
+        if not ffmpeg_cmd_exe:
+            print("⚠️ FFmpeg不可用，跳过音视频合并")
+            QMessageBox.warning(
+                self, "无声音",
+                "未找到 FFmpeg，无法将音频合并到视频。\n"
+                "请将 ffmpeg.exe 放到程序目录的 ffmpeg\\ 文件夹中后重试。"
+            )
+            return
+
+        try:
+            temp_audio_file = os.path.join(self.temp_dir, "temp_audio.wav")
+
+            # 使用音频线程实际使用的采样率与声道数
+            if self.audio_recorder is not None:
+                channels = getattr(self.audio_recorder, 'actual_channels', 1) or 1
+                sample_rate = getattr(self.audio_recorder, 'actual_sample_rate', 44100) or 44100
+            else:
+                channels = 1
+                sample_rate = 44100
+
+            # 保存音频到 WAV 文件
+            with wave.open(temp_audio_file, 'wb') as wf:
+                wf.setnchannels(channels)
+                wf.setsampwidth(2)  # 16 位 PCM
+                wf.setframerate(sample_rate)
+                wf.writeframes(b''.join(self.audio_frames))
+
+            if not os.path.exists(temp_audio_file) or os.path.getsize(temp_audio_file) == 0:
+                print("❌ 音频文件创建失败或为空，跳过音视频合并")
+                return
+
+            print(f"🔊 音频文件已创建: {os.path.getsize(temp_audio_file)} bytes")
+
+            base_name = os.path.splitext(self.output_file)[0]
+            ext = os.path.splitext(self.output_file)[1] or ".mp4"
+            temp_output = base_name + "_with_audio" + ext
+
+            # FFmpeg 合并：视频流复制（不重新编码），音频转 AAC 并保持音视频同步
+            ffmpeg_cmd = [
+                ffmpeg_cmd_exe, '-y',
+                '-i', self.output_file,
+                '-i', temp_audio_file,
+                '-c:v', 'copy',
+                '-c:a', 'aac',
+                '-b:a', '128k',
+                '-ar', str(sample_rate),
+                '-ac', str(min(channels, 2)),
+                '-shortest',
+                '-async', '1',
+                temp_output
+            ]
+
+            print("🔄 正在合并音视频...")
+            result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+
+            if result.returncode == 0 and os.path.exists(temp_output) and os.path.getsize(temp_output) > 0:
+                os.remove(self.output_file)
+                os.rename(temp_output, self.output_file)
+                print(f"✅ 音视频合并完成: {self.output_file}")
+            else:
+                print(f"❌ 音视频合并失败: {result.stderr[-500:]}")
+                if os.path.exists(temp_output):
+                    os.remove(temp_output)
+
+            # 清理临时音频文件
+            try:
+                os.remove(temp_audio_file)
+            except Exception:
+                pass
+
+        except Exception as e:
+            print(f"❌ 音视频合并错误: {e}")
 
     def take_screenshot(self):
         """截图"""

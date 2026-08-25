@@ -878,30 +878,45 @@ class ScreenRecorder:
         print(f"📁 临时目录: {self.temp_dir}")
     
     def init_audio_devices(self):
-        """初始化音频设备列表"""
+        """初始化音频设备列表（优先选择系统默认输入设备）"""
         try:
             p = pyaudio.PyAudio()
             self.audio_devices = []
+            
+            # 获取系统默认输入设备（Windows 默认麦克风）
+            default_input_index = None
+            try:
+                default_input_index = p.get_default_input_device_info().get('index')
+            except Exception:
+                pass
             
             for i in range(p.get_device_count()):
                 dev_info = p.get_device_info_by_index(i)
                 if dev_info.get('maxInputChannels', 0) > 0:
                     self.audio_devices.append({
                         'index': i,
-                        'name': dev_info.get('name', f'设备 {i}')
+                        'name': dev_info.get('name', f'设备 {i}'),
+                        'is_default': (i == default_input_index)
                     })
             
             p.terminate()
             
             if self.audio_devices:
-                self.audio_device_index = self.audio_devices[0]['index']
+                # 默认选中系统默认输入设备，避免选中静音/错误的设备导致录不到声音
+                default_device = next(
+                    (d for d in self.audio_devices if d.get('is_default')),
+                    self.audio_devices[0]
+                )
+                self.audio_device_index = default_device['index']
                 print(f"✅ 找到 {len(self.audio_devices)} 个音频输入设备")
             else:
                 print("❌ 未找到可用的音频输入设备")
+                self.audio_device_index = None
                 self.record_audio = False
                 
         except Exception as e:
             print(f"❌ 初始化音频设备失败: {e}")
+            self.audio_device_index = None
             self.record_audio = False
     
     def create_announcement(self, parent):
@@ -2266,6 +2281,10 @@ class ScreenRecorder:
             
             if hasattr(self, 'audio'):
                 self.audio.terminate()
+            
+            # 等待音频线程结束，确保所有音频帧已收集
+            if hasattr(self, 'audio_thread') and self.audio_thread.is_alive():
+                self.audio_thread.join(timeout=2.0)
             
             print("🔇 音频录制已停止")
     
