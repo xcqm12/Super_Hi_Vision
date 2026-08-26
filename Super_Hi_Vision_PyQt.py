@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Super Hi Vision - 高级超高清屏幕录制工具 (PyQt5现代化版本)
-版本: 1.5.16
+版本: 1.5.17
 使用PyQt5构建现代化界面，保持原有录制逻辑不变
 支持中英文语言切换
 支持多主题切换
@@ -108,7 +108,7 @@ if not check_and_install_pyqt5():
         "程序无法启动，PyQt5 依赖不可用！\n\n"
         "请确保已安装 Python 和 pip，然后运行：\n"
         "    pip install PyQt5\n\n"
-        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.16.exe）。"
+        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.17.exe）。"
     )
     sys.exit(1)
 
@@ -151,7 +151,7 @@ except Exception:
 # ==================== 版本和版权信息 ====================
 __author__ = "QLM Network Entertainment Technology Co., Ltd."
 __copyright__ = "Copyright 2019-2025, QLM Network Entertainment Technology Co., Ltd."
-__version__ = "1.5.16"
+__version__ = "1.5.17"
 __license__ = "MIT"
 __email__ = "qlm@qlm.org.cn"
 __website__ = "https://team.qlm.org.cn"
@@ -493,6 +493,37 @@ class LanguageManager:
     def get_text(self, key):
         """获取翻译文本"""
         return self.translations.get(self.current_language, {}).get(key, key)
+
+# ==================== 音频增益处理 ====================
+def _boost_audio_gain(frame_data, target_peak=0.5, max_gain=8.0):
+    """对 16-bit PCM 音频数据做自动增益放大，解决麦克风录音音量过低的问题。
+
+    根据整段数据的峰值计算统一增益（避免逐帧增益导致的音量波动），
+    并做削波保护（clip）。输入为静音时不做任何处理。
+
+    参数:
+        frame_data: bytes，int16 小端 PCM 原始数据
+        target_peak: 目标峰值（0~1），默认 0.5
+        max_gain: 最大增益倍数，防止将底噪放大得过响
+
+    返回:
+        放大后的原始字节数据（int16 小端）
+    """
+    try:
+        samples = np.frombuffer(frame_data, dtype=np.int16).astype(np.float32)
+        if samples.size == 0:
+            return frame_data
+        peak = float(np.max(np.abs(samples))) / 32768.0
+        if peak <= 0.0001:
+            return frame_data  # 静音或接近静音，不放大
+        gain = min(target_peak / peak, max_gain)
+        if gain <= 1.0:
+            return frame_data  # 音量已足够，无需放大
+        samples *= gain
+        np.clip(samples, -32768, 32767, out=samples)
+        return samples.astype(np.int16).tobytes()
+    except Exception:
+        return frame_data
 
 # ==================== 音频录制线程 ====================
 class AudioRecorderThread(QThread):
@@ -1266,11 +1297,13 @@ class ScreenRecorderApp(QMainWindow):
             p.terminate()
 
             test_path = os.path.join(self.temp_dir, "audio_test.wav")
+            # 自动增益放大，解决麦克风录音音量过低、测试播放听不清的问题
+            audio_data = _boost_audio_gain(b''.join(frames))
             with wave.open(test_path, 'wb') as wf:
                 wf.setnchannels(channels)
                 wf.setsampwidth(2)
                 wf.setframerate(rate)
-                wf.writeframes(b''.join(frames))
+                wf.writeframes(audio_data)
 
             # 播放测试音频
             try:
@@ -1713,12 +1746,15 @@ class ScreenRecorderApp(QMainWindow):
                 channels = 1
                 sample_rate = 44100
 
+            # 自动增益放大（解决音量过低），再交由 FFmpeg loudnorm 归一化到标准响度
+            audio_data = _boost_audio_gain(b''.join(self.audio_frames))
+
             # 保存音频到 WAV 文件
             with wave.open(temp_audio_file, 'wb') as wf:
                 wf.setnchannels(channels)
                 wf.setsampwidth(2)  # 16 位 PCM
                 wf.setframerate(sample_rate)
-                wf.writeframes(b''.join(self.audio_frames))
+                wf.writeframes(audio_data)
 
             if not os.path.exists(temp_audio_file) or os.path.getsize(temp_audio_file) == 0:
                 print("❌ 音频文件创建失败或为空，跳过音视频合并")
@@ -1740,8 +1776,9 @@ class ScreenRecorderApp(QMainWindow):
                 '-b:a', '128k',
                 '-ar', str(sample_rate),
                 '-ac', str(min(channels, 2)),
+                # 响度归一化：将过低音量拉回标准响度（解决合成后声音太小/听不见）
+                '-af', 'loudnorm=I=-16:TP=-1.5:LRA=11',
                 '-shortest',
-                '-async', '1',
                 temp_output
             ]
 

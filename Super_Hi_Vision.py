@@ -41,7 +41,7 @@ import pyaudio
 # 版权信息
 __author__ = "七零喵网络互娱科技有限公司"
 __copyright__ = "Copyright 2019-2025, 七零喵网络互娱科技有限公司"
-__version__ = "1.5.16"  # 应用图标
+__version__ = "1.5.17"  # 应用图标
 __license__ = "MIT"
 __email__ = "qlm@qlm.org.cn"
 __website__ = "https://team.qlm.org.cn"
@@ -59,6 +59,37 @@ print("=" * 60)
 AUDIO_SUPPORT = False
 PYAUDIO_AVAILABLE = False
 FFMPEG_AVAILABLE = False
+
+
+def _boost_audio_gain(frame_data, target_peak=0.5, max_gain=8.0):
+    """对 16-bit PCM 音频数据做自动增益放大，解决麦克风录音音量过低的问题。
+
+    根据整段数据的峰值计算统一增益（避免逐帧增益导致的音量波动），
+    并做削波保护（clip）。输入为静音时不做任何处理。
+
+    参数:
+        frame_data: bytes，int16 小端 PCM 原始数据
+        target_peak: 目标峰值（0~1），默认 0.5
+        max_gain: 最大增益倍数，防止将底噪放大得过响
+
+    返回:
+        放大后的原始字节数据（int16 小端）
+    """
+    try:
+        samples = np.frombuffer(frame_data, dtype=np.int16).astype(np.float32)
+        if samples.size == 0:
+            return frame_data
+        peak = float(np.max(np.abs(samples))) / 32768.0
+        if peak <= 0.0001:
+            return frame_data  # 静音或接近静音，不放大
+        gain = min(target_peak / peak, max_gain)
+        if gain <= 1.0:
+            return frame_data  # 音量已足够，无需放大
+        samples *= gain
+        np.clip(samples, -32768, 32767, out=samples)
+        return samples.astype(np.int16).tobytes()
+    except Exception:
+        return frame_data
 
 # 国内镜像源列表
 MIRROR_SOURCES = [
@@ -1923,12 +1954,12 @@ class ScreenRecorder:
             stream.close()
             audio.terminate()
             
-            # 保存文件
+            # 保存文件（自动增益放大，解决麦克风录音音量过低、测试播放听不清的问题）
             wf = wave.open(WAVE_OUTPUT_FILENAME, 'wb')
             wf.setnchannels(CHANNELS)
             wf.setsampwidth(audio.get_sample_size(FORMAT))
             wf.setframerate(RATE)
-            wf.writeframes(b''.join(frames))
+            wf.writeframes(_boost_audio_gain(b''.join(frames)))
             wf.close()
             
             messagebox.showinfo("测试成功", f"音频测试完成！\n文件保存至: {WAVE_OUTPUT_FILENAME}")
@@ -2425,6 +2456,9 @@ class ScreenRecorder:
             audio_rate = getattr(self, 'audio_rate', 44100)
             audio_format = getattr(self, 'audio_format', None)
             
+            # 自动增益放大（解决音量过低），再交由 FFmpeg loudnorm 归一化到标准响度
+            audio_data = _boost_audio_gain(b''.join(self.audio_frames))
+
             # 保存音频到WAV文件
             wf = wave.open(self.temp_audio_file, 'wb')
             wf.setnchannels(audio_channels)
@@ -2433,7 +2467,7 @@ class ScreenRecorder:
             else:
                 wf.setsampwidth(2)  # 默认16位
             wf.setframerate(audio_rate)
-            wf.writeframes(b''.join(self.audio_frames))
+            wf.writeframes(audio_data)
             wf.close()
             
             # 检查临时音频文件
@@ -2459,9 +2493,9 @@ class ScreenRecorder:
                 '-c:a', 'aac',
                 '-ar', '44100',
                 '-ac', '2',
+                # 响度归一化：将过低音量拉回标准响度（解决合成后声音太小/听不见）
+                '-af', 'loudnorm=I=-16:TP=-1.5:LRA=11',
                 '-shortest',
-                '-async', '1',
-                '-strict', 'experimental',
                 temp_output
             ]
             

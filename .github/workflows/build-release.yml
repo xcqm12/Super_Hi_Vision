@@ -1,6 +1,6 @@
 name: Build & Release
 
-# 推送 v* 标签（如 v1.5.16）时触发：自动打包 exe + NSIS 安装包并发布正式版
+# 推送 v* 标签（如 v1.5.17）时触发：自动打包 exe + NSIS 安装包并发布正式版
 on:
   push:
     tags:
@@ -56,8 +56,8 @@ jobs:
       - name: Prepare NSIS input files
         shell: pwsh
         run: |
-          Copy-Item -Path "dist/SuperHiVision_v1.5.16.exe" -Destination "SuperHiVision_v1.5.16.exe" -Force
-          Get-ChildItem "SuperHiVision_v1.5.16.exe" | Select-Object Name, Length
+          Copy-Item -Path "dist/SuperHiVision_v1.5.17.exe" -Destination "SuperHiVision_v1.5.17.exe" -Force
+          Get-ChildItem "SuperHiVision_v1.5.17.exe" | Select-Object Name, Length
 
       - name: Build NSIS installer
         shell: pwsh
@@ -69,8 +69,8 @@ jobs:
         with:
           name: SuperHiVision-${{ github.ref_name }}
           path: |
-            dist/SuperHiVision_v1.5.16.exe
-            SuperHiVision_Setup_v1.5.16.exe
+            dist/SuperHiVision_v1.5.17.exe
+            SuperHiVision_Setup_v1.5.17.exe
 
       - name: Create GitHub Release (正式版)
         uses: softprops/action-gh-release@v2
@@ -80,8 +80,8 @@ jobs:
             ## Super Hi Vision ${{ github.ref_name }} 正式版
 
             ### 📦 包含内容
-            - **SuperHiVision_v1.5.16.exe** — 单文件绿色版（约 95MB，无需安装 Python）
-            - **SuperHiVision_Setup_v1.5.16.exe** — NSIS 完整安装包（含 FFmpeg，自动创建桌面/开始菜单快捷方式）
+            - **SuperHiVision_v1.5.17.exe** — 单文件绿色版（约 95MB，无需安装 Python）
+            - **SuperHiVision_Setup_v1.5.17.exe** — NSIS 完整安装包（含 FFmpeg，自动创建桌面/开始菜单快捷方式）
 
             ### 🚀 使用说明
             - **绿色版**：直接双击即可运行
@@ -91,7 +91,7 @@ jobs:
             - Windows 10 / 11 64 位
             - 无需安装 Python / VC++ 运行库（已内置）
           files: |
-            dist/SuperHiVision_v1.5.16.exe
-            SuperHiVision_Setup_v1.5.16.exe
+            dist/SuperHiVision_v1.5.17.exe
+            SuperHiVision_Setup_v1.5.17.exe
           draft: false
           prerelease: false

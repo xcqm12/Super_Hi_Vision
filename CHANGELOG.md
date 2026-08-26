@@ -1,5 +1,19 @@
 # Super Hi Vision Changelog
 
+## Version 1.5.17 (2026-08-26)
+
+### Bug Fixes
+
+- **修复录音音量过低、合成视频听不见声音问题**（`Super_Hi_Vision_PyQt.py` 与 `Super_Hi_Vision.py`）
+  - 根因：录制的 PCM 音频未做任何音量处理，麦克风输入电平较低时，测试播放音量低、合成进视频后接近静音（实测 -44dB 几乎听不见）
+  - 新增 `_boost_audio_gain()` 自动增益：根据整段音频峰值计算统一增益（默认目标峰值 0.5、最大 8 倍），带削波保护，静音/正常音量不处理
+  - 「测试」按钮录音保存前应用自动增益，测试播放音量恢复正常
+  - 音视频合成前对全部音频帧应用自动增益，并用 FFmpeg `loudnorm` 响度归一化（目标 -16 LUFS，符合主流视频平台标准），将过低音量拉回标准响度
+  - 移除过时的 FFmpeg `-async` 选项（新版已弃用）
+  - 实测效果：低音量输入（max -44dB）合成后达到 max -11.7dB / mean -15.3dB，恢复正常可听音量
+
+---
+
 ## Version 1.5.16 (2026-08-26)
 
 ### New Features
@@ -196,4 +210,4 @@ Super Hi Vision is a professional HD screen recording tool featuring:
 
 **Copyright**: Copyright 2019-2025 QLM Network Entertainment Technology Co., Ltd.
 **Website**: https://team.qlm.org.cn
-**Version**: 1.5.16
+**Version**: 1.5.17
