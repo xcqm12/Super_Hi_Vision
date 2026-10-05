@@ -1,5 +1,5 @@
 ﻿; Super Hi Vision NSIS Installation Script
-; Version: 1.5.17
+; Version: 1.5.18
 ; 应用模式：启动器通过 wscript 运行，无控制台窗口
 ; 安装包已合成全部运行时依赖（EXE + FFmpeg + 环境检测脚本）
 
@@ -17,7 +17,7 @@
 !define UPDATEURL "https://team.qlm.org.cn"
 !define ABOUTURL "https://team.qlm.org.cn"
 !define INSTALLSIZE 120000
-!define EXEFILE "SuperHiVision_v1.5.17.exe"
+!define EXEFILE "SuperHiVision_v1.5.18.exe"
 !define LAUNCHERVBS "SuperHiVision_Launcher.vbs"
 
 ; Installer Settings

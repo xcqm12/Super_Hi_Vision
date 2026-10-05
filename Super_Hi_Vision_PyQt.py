@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Super Hi Vision - 高级超高清屏幕录制工具 (PyQt5现代化版本)
-版本: 1.5.17
+版本: 1.5.18
 使用PyQt5构建现代化界面，保持原有录制逻辑不变
 支持中英文语言切换
 支持多主题切换
@@ -108,7 +108,7 @@ if not check_and_install_pyqt5():
         "程序无法启动，PyQt5 依赖不可用！\n\n"
         "请确保已安装 Python 和 pip，然后运行：\n"
         "    pip install PyQt5\n\n"
-        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.17.exe）。"
+        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.18.exe）。"
     )
     sys.exit(1)
 
@@ -151,7 +151,7 @@ except Exception:
 # ==================== 版本和版权信息 ====================
 __author__ = "QLM Network Entertainment Technology Co., Ltd."
 __copyright__ = "Copyright 2019-2025, QLM Network Entertainment Technology Co., Ltd."
-__version__ = "1.5.17"
+__version__ = "1.5.18"
 __license__ = "MIT"
 __email__ = "qlm@qlm.org.cn"
 __website__ = "https://team.qlm.org.cn"
@@ -1434,6 +1434,50 @@ class ScreenRecorderApp(QMainWindow):
             else:
                 self.resume_recording()
 
+    # 各容器可用的编码 fourcc 候选（按优先级尝试，避免个别编码器缺失时录出空文件）
+    _FOURCC_CANDIDATES = {
+        'MP4': ['mp4v', 'avc1'],
+        'AVI': ['XVID', 'MJPG'],
+        'MKV': ['mp4v', 'XVID', 'MJPG'],
+        'FLV': ['FLV1', 'mp4v'],
+        'MOV': ['avc1', 'mp4v'],
+    }
+    _FOURCC_DEFAULT = ['mp4v', 'MJPG']
+
+    def _create_video_writer(self, output_file, width, height):
+        """创建视频写入器：按容器依次尝试可用编码，并校验是否真正打开
+
+        某些 fourcc（例如 MKV 常用的 X264）在当前 OpenCV 里没有对应编码器时会
+        静默失败——不抛异常、不写任何数据，最后留下一个 0 字节、无法播放的文件。
+        这里逐个候选验证 isOpened()，全部失败则返回 None，由调用方提示用户。
+        """
+        candidates = self._FOURCC_CANDIDATES.get(self.format, self._FOURCC_DEFAULT)
+        last_error = "无可用编码器"
+
+        for tag in candidates:
+            try:
+                writer = cv2.VideoWriter(
+                    output_file, cv2.VideoWriter_fourcc(*tag), self.fps, (width, height)
+                )
+            except Exception as e:
+                last_error = str(e)
+                continue
+
+            if writer.isOpened():
+                if tag != candidates[0]:
+                    print(f"⚠️ 编码 {candidates[0]} 不可用，已回退到 {tag}")
+                print(f"🎬 视频编码: {tag} -> {output_file}")
+                return writer
+
+            try:
+                writer.release()
+            except Exception:
+                pass
+            last_error = f"编码 {tag} 无法打开"
+
+        print(f"❌ 无法创建视频写入器: {last_error}")
+        return None
+
     def start_recording(self):
         """开始录制"""
         if self.recording:
@@ -1453,14 +1497,7 @@ class ScreenRecorderApp(QMainWindow):
 
         self.output_file = os.path.join(self.output_dir, f"{output_filename}.{self.format.lower()}")
 
-        fourcc_map = {
-            'MP4': cv2.VideoWriter_fourcc(*'mp4v'),
-            'AVI': cv2.VideoWriter_fourcc(*'XVID'),
-            'MKV': cv2.VideoWriter_fourcc(*'X264'),
-            'FLV': cv2.VideoWriter_fourcc(*'FLV1'),
-            'MOV': cv2.VideoWriter_fourcc(*'avc1')
-        }
-        fourcc = fourcc_map.get(self.format, cv2.VideoWriter_fourcc(*'mp4v'))
+        # 编码器候选由 _create_video_writer 按容器逐个尝试（见下方创建写入器处）
 
         fps_map = {
             '10 FPS': 10, '15 FPS': 15, '24 FPS': 24, '30 FPS': 30,
@@ -1482,7 +1519,27 @@ class ScreenRecorderApp(QMainWindow):
             width = self.follow_width_spin.value()
             height = self.follow_height_spin.value()
 
-        self.video_writer = cv2.VideoWriter(self.output_file, fourcc, self.fps, (width, height))
+        # 确保输出目录存在（首次运行 / 用户手改了路径时，缺目录会让录制静默失败）
+        try:
+            os.makedirs(self.output_dir, exist_ok=True)
+        except Exception as e:
+            print(f"⚠️ 无法创建输出目录 {self.output_dir}: {e}")
+
+        # yuv420 系列编码器要求宽高为偶数，否则部分编码器会拒绝打开
+        width -= width % 2
+        height -= height % 2
+
+        self.video_writer = self._create_video_writer(self.output_file, width, height)
+
+        if self.video_writer is None:
+            self.recording = False
+            self.status_label.setText(self.language_manager.get_text('ready'))
+            QMessageBox.critical(
+                self, "无法开始录制",
+                f"无法创建视频文件：\n{self.output_file}\n\n"
+                f"请确认输出目录可写，或更换视频格式（当前：{self.format}）。"
+            )
+            return
 
         if self.record_audio and self.enable_audio_check.isChecked():
             device_index = self.audio_device_combo.currentData()
@@ -1598,6 +1655,15 @@ class ScreenRecorderApp(QMainWindow):
         if self.timer:
             self.timer.stop()
 
+        # 先等录制线程退出，确保最后一帧写完，再释放写入器：
+        # 线程正在 write() 时 release() 会写坏 mp4 的 moov 索引，文件能生成但无法播放
+        if self.recording_thread is not None:
+            try:
+                if self.recording_thread.isRunning():
+                    self.recording_thread.wait(5000)
+            except Exception:
+                pass
+
         if self.audio_recorder:
             self.audio_recorder.stop()
             # 等待音频线程结束，确保所有音频帧已被收集
@@ -1605,13 +1671,15 @@ class ScreenRecorderApp(QMainWindow):
 
         if self.video_writer:
             self.video_writer.release()
+            self.video_writer = None
 
         # 校正视频帧率（防止快放/慢放）
         self.fix_video_playback_speed()
 
         # 合并音视频（如果录到了音频）
+        audio_merged = False
         if self.audio_frames and self.output_file:
-            self.merge_audio_video()
+            audio_merged = bool(self.merge_audio_video())
 
         self.start_btn.setText(self.language_manager.get_text('start_recording'))
         self.stop_btn.setEnabled(False)
@@ -1620,7 +1688,24 @@ class ScreenRecorderApp(QMainWindow):
 
         self.recording_stopped.emit()
 
-        QMessageBox.information(self, "Recording Complete", f"Video saved to:\n{self.output_file}")
+        # 结果校验：避免"录制完成"的提示掩盖 0 字节 / 损坏文件
+        saved = bool(self.output_file) and os.path.exists(self.output_file) and os.path.getsize(self.output_file) > 0
+        if not saved:
+            QMessageBox.warning(
+                self, "录制失败",
+                "视频文件未能正常生成（文件不存在或为空）。\n"
+                f"输出路径：{self.output_file}\n格式：{self.format}\n\n"
+                "请更换视频格式（推荐 MP4）或确认输出目录可写后重试。"
+            )
+        elif self.record_audio and self.audio_frames and not audio_merged:
+            QMessageBox.warning(
+                self, "有画面无声音",
+                f"视频已保存：\n{self.output_file}\n\n"
+                "但音频合成失败（未能调用 FFmpeg）。\n"
+                "请确认程序目录下的 ffmpeg 文件夹（含 ffmpeg.exe）存在后重试。"
+            )
+        else:
+            QMessageBox.information(self, "Recording Complete", f"Video saved to:\n{self.output_file}")
 
     def on_audio_data(self, data):
         """处理音频数据"""
@@ -1631,18 +1716,91 @@ class ScreenRecorderApp(QMainWindow):
         """音频录制错误处理"""
         print(f"❌ 音频录制错误: {message}")
 
-    def _find_ffmpeg(self):
-        """查找FFmpeg可执行文件（优先程序自带 ffmpeg 目录，其次系统 PATH）"""
-        bundled = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ffmpeg", "ffmpeg.exe")
-        if os.path.exists(bundled):
-            return bundled
+    def _find_ffmpeg(self, name='ffmpeg'):
+        """查找FFmpeg可执行文件
+
+        注意：打包成单文件 exe 后 __file__ 指向 PyInstaller 的临时解包目录
+        (_MEIPASS)，而不是程序所在目录，只按 __file__ 查找会漏掉随程序分发的
+        <安装目录>\\ffmpeg\\ffmpeg.exe，导致音视频合并直接失败。这里按优先级
+        枚举所有可能的落地点，并对候选做一次可执行性验证（避免命中损坏文件）。
+        """
+        exe_name = name + ".exe" if os.name == "nt" else name
+        candidates = []
+
+        env_ffmpeg = os.environ.get("FFMPEG_BINARY")
+        if env_ffmpeg:
+            candidates.append(env_ffmpeg)
+
+        # 1. 单文件 exe 的临时解包目录
+        mei = getattr(sys, "_MEIPASS", None)
+        if mei:
+            candidates += [os.path.join(mei, "ffmpeg", exe_name),
+                           os.path.join(mei, exe_name)]
+
+        # 2. 可执行文件所在目录（安装目录）、源码目录、当前工作目录
+        search_dirs = []
+        for probe in (getattr(sys, "executable", None), sys.argv[0] if sys.argv else None):
+            if probe:
+                try:
+                    search_dirs.append(os.path.dirname(os.path.abspath(probe)))
+                except Exception:
+                    pass
         try:
-            result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True)
-            if result.returncode == 0:
-                return 'ffmpeg'
+            search_dirs.append(os.path.dirname(os.path.abspath(__file__)))
         except Exception:
             pass
+        try:
+            search_dirs.append(os.getcwd())
+        except Exception:
+            pass
+
+        for base in search_dirs:
+            if not base:
+                continue
+            candidates += [
+                os.path.join(base, "ffmpeg", exe_name),
+                os.path.join(base, exe_name),
+                os.path.join(base, "_internal", "ffmpeg", exe_name),
+                os.path.join(base, "_internal", exe_name),
+            ]
+
+        # 3. 常见安装位置
+        candidates += [
+            r"C:\ffmpeg\bin\ffmpeg.exe",
+            r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
+            os.path.expanduser(r"~\ffmpeg\bin\ffmpeg.exe"),
+            "/usr/bin/ffmpeg",
+            "/usr/local/bin/ffmpeg",
+        ]
+
+        seen = set()
+        for path in candidates:
+            if not path or path in seen:
+                continue
+            seen.add(path)
+            if os.path.isfile(path) and self._probe_ffmpeg(path):
+                return path
+
+        # 4. 系统 PATH（最后兜底）
+        ffmpeg_in_path = shutil.which(name)
+        if ffmpeg_in_path and self._probe_ffmpeg(ffmpeg_in_path):
+            return ffmpeg_in_path
+        if self._probe_ffmpeg(name):
+            return name
+
         return None
+
+    @staticmethod
+    def _probe_ffmpeg(cmd):
+        """验证候选 ffmpeg 是否真的可执行"""
+        try:
+            result = subprocess.run(
+                [cmd, "-version"], capture_output=True, text=True, timeout=15,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            return result.returncode == 0 and "ffmpeg version" in (result.stdout or "")
+        except Exception:
+            return False
 
     def fix_video_playback_speed(self):
         """校正视频播放速度：按实际捕获帧率重设视频帧率（防止快放/慢放）
@@ -1682,13 +1840,19 @@ class ScreenRecorderApp(QMainWindow):
 
             # 时间戳缩放系数：目标播放时长 / 文件当前时长 = target_fps / actual_fps
             scale_factor = target_fps / actual_fps
+            # 限幅：帧率统计异常（暂停/设备卡顿）时避免时间戳缩放失控
+            scale_factor = max(0.05, min(scale_factor, 20.0))
             actual_fps_str = f"{actual_fps:.3f}"
+
+            # MP4/MOV 加 faststart：把索引放到文件头，避免播放器打开即报错/卡住
+            faststart = ['-movflags', '+faststart'] if ext.lower() in ('.mp4', '.mov', '.m4v') else []
 
             # 方式一：-itsscale 时间戳缩放 + 流复制（无损、快速）
             result = subprocess.run(
                 [ffmpeg_cmd_exe, '-y', '-itsscale', f"{scale_factor:.6f}",
-                 '-i', self.output_file, '-c:v', 'copy', '-an', temp_corrected],
-                capture_output=True, text=True
+                 '-i', self.output_file, '-c:v', 'copy', '-an'] + faststart + [temp_corrected],
+                capture_output=True, text=True,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
             )
 
             if result.returncode == 0 and os.path.exists(temp_corrected) and os.path.getsize(temp_corrected) > 0:
@@ -1704,8 +1868,9 @@ class ScreenRecorderApp(QMainWindow):
             result = subprocess.run(
                 [ffmpeg_cmd_exe, '-y', '-r', actual_fps_str,
                  '-i', self.output_file, '-c:v', 'libx264',
-                 '-preset', 'fast', '-crf', '18', '-an', temp_corrected],
-                capture_output=True, text=True
+                 '-preset', 'fast', '-crf', '18', '-pix_fmt', 'yuv420p', '-an'] + faststart + [temp_corrected],
+                capture_output=True, text=True,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
             )
 
             if result.returncode == 0 and os.path.exists(temp_corrected) and os.path.getsize(temp_corrected) > 0:
@@ -1720,20 +1885,18 @@ class ScreenRecorderApp(QMainWindow):
             print(f"❌ 视频帧率校正错误: {e}")
 
     def merge_audio_video(self):
-        """合并音频和视频：将录制到的麦克风音频合成进视频文件"""
+        """合并音频和视频：将录制到的麦克风音频合成进视频文件
+
+        返回 True 表示最终视频里确实带上了音频，False 表示合并失败或被跳过。
+        """
         if not self.audio_frames or not self.output_file:
             print("⚠️ 音频帧为空或输出文件不存在，跳过音视频合并")
-            return
+            return False
 
         ffmpeg_cmd_exe = self._find_ffmpeg()
         if not ffmpeg_cmd_exe:
             print("⚠️ FFmpeg不可用，跳过音视频合并")
-            QMessageBox.warning(
-                self, "无声音",
-                "未找到 FFmpeg，无法将音频合并到视频。\n"
-                "请将 ffmpeg.exe 放到程序目录的 ffmpeg\\ 文件夹中后重试。"
-            )
-            return
+            return False
 
         try:
             temp_audio_file = os.path.join(self.temp_dir, "temp_audio.wav")
@@ -1758,7 +1921,7 @@ class ScreenRecorderApp(QMainWindow):
 
             if not os.path.exists(temp_audio_file) or os.path.getsize(temp_audio_file) == 0:
                 print("❌ 音频文件创建失败或为空，跳过音视频合并")
-                return
+                return False
 
             print(f"🔊 音频文件已创建: {os.path.getsize(temp_audio_file)} bytes")
 
@@ -1766,33 +1929,63 @@ class ScreenRecorderApp(QMainWindow):
             ext = os.path.splitext(self.output_file)[1] or ".mp4"
             temp_output = base_name + "_with_audio" + ext
 
-            # FFmpeg 合并：视频流复制（不重新编码），音频转 AAC 并保持音视频同步
-            ffmpeg_cmd = [
-                ffmpeg_cmd_exe, '-y',
-                '-i', self.output_file,
-                '-i', temp_audio_file,
-                '-c:v', 'copy',
-                '-c:a', 'aac',
-                '-b:a', '128k',
-                '-ar', str(sample_rate),
-                '-ac', str(min(channels, 2)),
-                # 响度归一化：将过低音量拉回标准响度（解决合成后声音太小/听不见）
-                '-af', 'loudnorm=I=-16:TP=-1.5:LRA=11',
-                '-shortest',
-                temp_output
+            # MP4/MOV 加 faststart：把索引放到文件头，避免播放器打开即报错/卡顿
+            faststart = ['-movflags', '+faststart'] if ext.lower() in ('.mp4', '.mov', '.m4v') else []
+
+            # 响度归一化（解决声音太小/听不见）+ apad 补静音：
+            # 配合 -shortest 保证整段画面都有声音，又不会因为音频比画面短而截断视频
+            audio_filter = 'loudnorm=I=-16:TP=-1.5:LRA=11,apad'
+
+            # 视频优先流复制（无损、快速）；容器不支持该编码时回退重新编码
+            video_attempts = [
+                ('流复制', ['-c:v', 'copy']),
+                ('重新编码', ['-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-pix_fmt', 'yuv420p']),
             ]
 
-            print("🔄 正在合并音视频...")
-            result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+            def build_cmd(video_opts, use_filter=True):
+                cmd = [ffmpeg_cmd_exe, '-y', '-i', self.output_file, '-i', temp_audio_file]
+                cmd += video_opts
+                cmd += ['-c:a', 'aac', '-b:a', '128k',
+                        '-ar', str(sample_rate), '-ac', str(min(channels, 2))]
+                if use_filter:
+                    cmd += ['-af', audio_filter]
+                cmd += ['-shortest'] + faststart + [temp_output]
+                return cmd
 
-            if result.returncode == 0 and os.path.exists(temp_output) and os.path.getsize(temp_output) > 0:
+            merged = False
+            last_err = ''
+            for label, video_opts in video_attempts:
+                for use_filter in (True, False):
+                    if os.path.exists(temp_output):
+                        try:
+                            os.remove(temp_output)
+                        except Exception:
+                            pass
+                    note = "" if use_filter else "，跳过响度归一化"
+                    print(f"🔄 正在合并音视频（{label}{note}）...")
+                    result = subprocess.run(
+                        build_cmd(video_opts, use_filter), capture_output=True, text=True,
+                        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+                    )
+                    if (result.returncode == 0 and os.path.exists(temp_output)
+                            and os.path.getsize(temp_output) > 0):
+                        merged = True
+                        break
+                    last_err = (result.stderr or '')[-500:]
+                if merged:
+                    break
+
+            if merged:
                 os.remove(self.output_file)
                 os.rename(temp_output, self.output_file)
                 print(f"✅ 音视频合并完成: {self.output_file}")
             else:
-                print(f"❌ 音视频合并失败: {result.stderr[-500:]}")
+                print(f"❌ 音视频合并失败: {last_err}")
                 if os.path.exists(temp_output):
-                    os.remove(temp_output)
+                    try:
+                        os.remove(temp_output)
+                    except Exception:
+                        pass
 
             # 清理临时音频文件
             try:
@@ -1800,8 +1993,11 @@ class ScreenRecorderApp(QMainWindow):
             except Exception:
                 pass
 
+            return merged
+
         except Exception as e:
             print(f"❌ 音视频合并错误: {e}")
+            return False
 
     def take_screenshot(self):
         """截图"""

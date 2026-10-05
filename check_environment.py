@@ -29,6 +29,33 @@ MIRROR_SOURCES = [
     }
 ]
 
+def _search_bases():
+    """返回可能放置 ffmpeg 目录的候选父目录（按优先级）
+
+    打包为单文件 exe 后 __file__ 指向 PyInstaller 的临时解包目录，只按 __file__
+    查找会漏掉随程序安装在 <安装目录>\\ffmpeg 下的 ffmpeg，故需一并枚举。
+    """
+    bases = []
+    mei = getattr(sys, "_MEIPASS", None)
+    if mei:
+        bases.append(mei)
+    for probe in (getattr(sys, "executable", None), sys.argv[0] if sys.argv else None):
+        if probe:
+            try:
+                bases.append(os.path.dirname(os.path.abspath(probe)))
+            except Exception:
+                pass
+    try:
+        bases.append(os.path.dirname(os.path.abspath(__file__)))
+    except Exception:
+        pass
+    try:
+        bases.append(os.getcwd())
+    except Exception:
+        pass
+    return bases
+
+
 def check_python_version():
     """检查Python版本"""
     import sys
@@ -96,15 +123,19 @@ def install_package(package_name):
 
 def check_ffmpeg():
     """检查FFmpeg是否安装（优先检测程序自带的本地 ffmpeg 目录）"""
-    # 优先检测程序自带的 ffmpeg 目录（安装包已合成）
-    local_ffmpeg_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ffmpeg")
-    local_ffmpeg = os.path.join(local_ffmpeg_dir, "ffmpeg.exe")
-
-    if os.path.exists(local_ffmpeg):
-        # 将本地 ffmpeg 目录加入 PATH，供子进程直接调用
-        os.environ["PATH"] = local_ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
-        print(f"✅ FFmpeg 已随程序自带: {local_ffmpeg}")
-        return True
+    # 依次检测：程序/可执行文件所在目录、源码目录、PyInstaller 解包目录下的 ffmpeg
+    seen = set()
+    for base in _search_bases():
+        local_ffmpeg_dir = os.path.join(base, "ffmpeg")
+        local_ffmpeg = os.path.join(local_ffmpeg_dir, "ffmpeg.exe")
+        if local_ffmpeg_dir in seen:
+            continue
+        seen.add(local_ffmpeg_dir)
+        if os.path.exists(local_ffmpeg):
+            # 将本地 ffmpeg 目录加入 PATH，供子进程直接调用
+            os.environ["PATH"] = local_ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
+            print(f"✅ FFmpeg 已随程序自带: {local_ffmpeg}")
+            return True
 
     # 其次检测系统 PATH 中的 ffmpeg
     if shutil.which("ffmpeg"):
@@ -278,7 +309,7 @@ def run_screen_recorder():
         base_dir = os.path.dirname(os.path.abspath(__file__))
 
         # 1. 优先启动已打包的 EXE（应用模式，无控制台）
-        exe_path = os.path.join(base_dir, "SuperHiVision_v1.5.17.exe")
+        exe_path = os.path.join(base_dir, "SuperHiVision_v1.5.18.exe")
         if os.path.exists(exe_path):
             print(f"\n✅ 启动已打包的应用: {exe_path}")
             try:

@@ -1,5 +1,27 @@
 # Super Hi Vision Changelog
 
+## Version 1.5.18 (2026-10-05)
+
+### Bug Fixes
+
+- **修复打包版 EXE「视频合成失败 / 输出视频无法播放」问题**（`Super_Hi_Vision_PyQt.py`）
+  - 根因1：单文件 EXE 下 `__file__` 指向 PyInstaller 临时解包目录，原 `_find_ffmpeg()` 只在该目录同级找 ffmpeg，随程序分发的 `ffmpeg\ffmpeg.exe` 永远找不到，音视频合并被直接跳过（录出来没声音、看起来像"合成失败"）
+    - 现按优先级枚举解包目录、可执行文件所在目录（安装目录，含 `_internal`）、源码目录、当前工作目录、常见安装路径与系统 PATH，并对每个候选做一次 `-version` 可执行性校验
+  - 根因2：MKV 使用 `X264` fourcc，当前 OpenCV 没有对应编码器时**静默失败**——不报错也不写数据，最终留下 0 字节、无法播放的文件
+    - 改为按容器逐个候选编码尝试并校验 `isOpened()`（MKV 回退 `mp4v`），全部失败则明确弹窗报错，不再谎报"录制完成"
+  - 根因3：合成命令使用 `-shortest` 且未补静音，音频比画面短时会把视频截短
+    - 增加 `apad` 补静音：整段画面都有声音，同时不会截断画面
+- 其他加固
+  - 录制前自动创建输出目录；宽高取偶数（yuv420 系列编码器要求）
+  - 停止录制时先等待录制线程退出再 `release()`，避免写坏 MP4 的 moov 索引导致文件无法播放
+  - 音视频合并改为多策略重试：视频流复制失败回退 `libx264` 重编码；`loudnorm` 失败回退无滤镜合并
+  - MP4/MOV 输出统一加 `-movflags +faststart`（索引前置），播放器/网页不再打开即报错
+  - 时间戳缩放系数限幅 0.05~20，避免帧率统计异常时视频时长失控
+  - 录制结束后校验输出文件（不存在或 0 字节 → 明确提示失败，不再提示成功）
+- `check_environment.py` 同步修复 ffmpeg 查找逻辑（同样枚举可执行文件目录与解包目录）
+
+---
+
 ## Version 1.5.17 (2026-08-26)
 
 ### Bug Fixes
@@ -210,4 +232,4 @@ Super Hi Vision is a professional HD screen recording tool featuring:
 
 **Copyright**: Copyright 2019-2025 QLM Network Entertainment Technology Co., Ltd.
 **Website**: https://team.qlm.org.cn
-**Version**: 1.5.17
+**Version**: 1.5.18

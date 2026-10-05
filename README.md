@@ -35,6 +35,19 @@
 - **多主题支持**
   - 6种精美主题（深色/浅色/海洋/日落/森林/紫色）
 
+## 🩹 最新更新（v1.5.18）
+
+修复打包版 EXE「视频合成失败 / 合成后的视频无法播放」问题：
+
+- **打包后找不到 FFmpeg**：单文件 EXE 运行时 `__file__` 指向临时解包目录，程序现在按「EXE 所在目录 → 解包目录 → 源码目录 → 常见安装路径 → 系统 PATH」逐级查找并校验 ffmpeg，不再静默跳过音视频合并（此前表现为"录出来没声音 / 合成失败"）
+- **MKV 录出 0 字节文件**：`X264` 编码器在当前 OpenCV 中缺失时会静默失败，现按容器逐个候选编码校验（MKV 回退 `mp4v`），全部失败则明确弹窗报错，不再谎报"录制完成"
+- **音频比画面短会把视频截短**：合成命令增加 `apad` 补静音，整段画面都有声音，且画面不再被截断
+- 其余加固：停止录制先等录制线程退出再释放写入器（避免文件损坏无法播放）、音视频合并多策略重试（流复制 → 重编码 / 响度归一化回退）、MP4/MOV 加 `-movflags +faststart`、录制结束后校验输出文件（0 字节即报失败）
+
+> ⚠️ 直接运行的 EXE 需与 `ffmpeg\` 文件夹**放在同一目录**（安装包会自动布置到 `安装目录\ffmpeg\`）。
+
+---
+
 ## 🚀 快速开始
 
 ### 系统要求
@@ -50,7 +63,7 @@
 
 ```bash
 # 直接双击运行（无控制台窗口）
-SuperHiVision_v1.5.17.exe
+SuperHiVision_v1.5.18.exe
 ```
 
 #### 方式二：双击 VBS 启动器（自动选择 EXE / Python 源码）
@@ -62,7 +75,7 @@ SuperHiVision_Launcher.vbs
 
 启动器自动按以下优先级选择运行方式：
 
-1. 若同目录存在已打包的 `SuperHiVision_v1.5.17.exe` → 直接启动 EXE
+1. 若同目录存在已打包的 `SuperHiVision_v1.5.18.exe` → 直接启动 EXE
 2. 否则使用 `pythonw.exe`（无控制台）运行 `Super_Hi_Vision_PyQt.py` 源码
 3. 否则运行 `Super_Hi_Vision_App.pyw`（pythonw 启动器）
 4. 最后回退到 `python.exe` 运行源码
@@ -186,7 +199,7 @@ Super_Hi_Vision/
 │   ├── ffmpeg.exe
 │   ├── ffplay.exe
 │   └── ffprobe.exe
-└── SuperHiVision_v1.5.17.exe      # 打包后的可执行文件
+└── SuperHiVision_v1.5.18.exe      # 打包后的可执行文件
 ```
 
 ## 🛠️ 技术栈
@@ -213,4 +226,4 @@ MIT License - 详见 [LICENSE.txt](LICENSE.txt)
 
 **版权**: QLM Network Entertainment Technology Co., Ltd.
 **网站**: https://team.qlm.org.cn
-**版本**: 1.5.9
+**版本**: 1.5.18
