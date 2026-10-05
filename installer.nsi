@@ -12,7 +12,7 @@
 !define DESCRIPTION "Advanced HD Screen Recording Tool"
 !define VERSIONMAJOR 1
 !define VERSIONMINOR 5
-!define VERSIONBUILD 17
+!define VERSIONBUILD 18
 !define HELPURL "https://team.qlm.org.cn"
 !define UPDATEURL "https://team.qlm.org.cn"
 !define ABOUTURL "https://team.qlm.org.cn"
