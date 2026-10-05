@@ -1,6 +1,6 @@
 name: Build & Release
 
-# 推送 v* 标签（如 v1.5.21）时触发：自动打包 exe + NSIS 安装包并发布正式版
+# 推送 v* 标签（如 v1.5.22）时触发：自动打包 exe + NSIS 安装包并发布正式版
 on:
   push:
     tags:
@@ -56,8 +56,8 @@ jobs:
       - name: Prepare NSIS input files
         shell: pwsh
         run: |
-          Copy-Item -Path "dist/SuperHiVision_v1.5.21.exe" -Destination "SuperHiVision_v1.5.21.exe" -Force
-          Get-ChildItem "SuperHiVision_v1.5.21.exe" | Select-Object Name, Length
+          Copy-Item -Path "dist/SuperHiVision_v1.5.22.exe" -Destination "SuperHiVision_v1.5.22.exe" -Force
+          Get-ChildItem "SuperHiVision_v1.5.22.exe" | Select-Object Name, Length
 
       - name: Build NSIS installer
         shell: pwsh
@@ -69,8 +69,8 @@ jobs:
         with:
           name: SuperHiVision-${{ github.ref_name }}
           path: |
-            dist/SuperHiVision_v1.5.21.exe
-            SuperHiVision_Setup_v1.5.21.exe
+            dist/SuperHiVision_v1.5.22.exe
+            SuperHiVision_Setup_v1.5.22.exe
 
       - name: Create GitHub Release (正式版)
         uses: softprops/action-gh-release@v2
@@ -79,16 +79,16 @@ jobs:
           body: |
             ## Super Hi Vision ${{ github.ref_name }} 正式版
 
-            ### 🆕 本次更新（v1.5.21）
-            - 🎙️ **音频降噪**：保存时由 FFmpeg 处理（`highpass` + `afftdn`）+ 响度归一化，不占录制 CPU
-            - 🖥️ **后台保活**：关闭窗口最小化到系统托盘，程序继续在后台运行，录制与全局热键不受影响
-            - 👆 **再次点击图标能唤出窗口**：单实例机制，第二个进程唤回已有窗口后自动退出
-            - 🔇 **静默合成**：保存过程只在窗口内显示进度，不再弹对话框；成功仅在状态栏提示
-            - 🧯 **修复保存后崩溃/打不开**：`cv2.VideoWriter` 跨线程触发 OpenCV 内置 FFmpeg `abort()`（异常代码 `0x40000015`）
+            ### 🆕 本次更新（v1.5.22）
+            - 🎚️ **降噪强度滑杆（0-100%）**：音频页原来的开关改成滑杆，0 = 关闭，往右 轻度/中度/强力，默认 40%
+            - 📈 **参数随滑杆实时改变**：`afftdn=nr=6~24:nf=-40~-20`（越右压得越狠），仍走 `highpass → afftdn → loudnorm → apad` 的三级降级链
+            - 💾 **随设置持久化**：写入 `~/.super_hi_vision_settings.json` 的 `denoise_strength`；旧的 `denoise` 布尔开关自动折算为 40%/关闭
+            - 🧪 **实测标定**：粉噪声样本上强度 20/40/60/80/100 的输出底噪 -43.3/-46.5/-51.4/-57.9/-62.5 dB，单调下降
+            - 🖥️ 保留 1.5.21 的后台托盘保活、二次点击唤出窗口、静默合成与保存崩溃修复
 
             ### 📦 包含内容
-            - **SuperHiVision_v1.5.21.exe** — 单文件绿色版（约 95MB，无需安装 Python）
-            - **SuperHiVision_Setup_v1.5.21.exe** — NSIS 完整安装包（含 FFmpeg，自动创建桌面/开始菜单快捷方式）
+            - **SuperHiVision_v1.5.22.exe** — 单文件绿色版（约 95MB，无需安装 Python）
+            - **SuperHiVision_Setup_v1.5.22.exe** — NSIS 完整安装包（含 FFmpeg，自动创建桌面/开始菜单快捷方式）
 
             ### 🚀 使用说明
             - **绿色版**：直接双击即可运行
@@ -98,7 +98,7 @@ jobs:
             - Windows 10 / 11 64 位
             - 无需安装 Python / VC++ 运行库（已内置）
           files: |
-            dist/SuperHiVision_v1.5.21.exe
-            SuperHiVision_Setup_v1.5.21.exe
+            dist/SuperHiVision_v1.5.22.exe
+            SuperHiVision_Setup_v1.5.22.exe
           draft: false
           prerelease: false

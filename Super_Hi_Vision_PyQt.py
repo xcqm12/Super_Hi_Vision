@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Super Hi Vision - 高级超高清屏幕录制工具 (PyQt5现代化版本)
-版本: 1.5.21
+版本: 1.5.22
 使用PyQt5构建现代化界面，保持原有录制逻辑不变
 支持中英文语言切换
 支持多主题切换
@@ -219,7 +219,7 @@ if not check_and_install_pyqt5():
         "程序无法启动，PyQt5 依赖不可用！\n\n"
         "请确保已安装 Python 和 pip，然后运行：\n"
         "    pip install PyQt5\n\n"
-        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.21.exe）。"
+        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.22.exe）。"
     )
     sys.exit(1)
 
@@ -264,7 +264,7 @@ except Exception:
 # ==================== 版本和版权信息 ====================
 __author__ = "QLM Network Entertainment Technology Co., Ltd."
 __copyright__ = "Copyright 2019-2025, QLM Network Entertainment Technology Co., Ltd."
-__version__ = "1.5.21"
+__version__ = "1.5.22"
 __license__ = "MIT"
 __email__ = "qlm@qlm.org.cn"
 __website__ = "https://team.qlm.org.cn"
@@ -532,7 +532,12 @@ class LanguageManager:
                 'audio_device': '音频设备',
                 'test_audio': '测试',
                 'enable_denoise': '音频降噪（去除背景底噪 / 电流声）',
-                'denoise_hint': '降噪在保存时统一处理（highpass + afftdn），不增加录制时的 CPU 负担',
+                'denoise_strength': '降噪强度：',
+                'denoise_off': '关闭（不做降噪）',
+                'denoise_light': '轻度',
+                'denoise_medium': '中度',
+                'denoise_strong': '强力',
+                'denoise_hint': '降噪在保存时统一处理（highpass + afftdn），不增加录制时的 CPU 负担；左端关闭，越往右压得越狠（环境噪声大可拉到 70% 以上）',
                 'minimize_to_tray': '关闭窗口时最小化到托盘（后台继续运行）',
                 'show_window': '显示主窗口',
                 'quit_app': '退出',
@@ -588,7 +593,12 @@ class LanguageManager:
                 'audio_device': 'Audio Device',
                 'test_audio': 'Test',
                 'enable_denoise': 'Audio Denoise (remove background hiss / hum)',
-                'denoise_hint': 'Denoise is applied while saving (highpass + afftdn), no extra CPU load while recording',
+                'denoise_strength': 'Denoise strength:',
+                'denoise_off': 'Off (no denoise)',
+                'denoise_light': 'Light',
+                'denoise_medium': 'Medium',
+                'denoise_strong': 'Strong',
+                'denoise_hint': 'Denoise is applied while saving (highpass + afftdn), no extra CPU load while recording; leftmost = off, further right removes more (use 70%+ in noisy rooms)',
                 'minimize_to_tray': 'Minimize to tray on close (keep running in background)',
                 'show_window': 'Show Window',
                 'quit_app': 'Quit',
@@ -955,7 +965,8 @@ class ScreenRecorderApp(QMainWindow):
         self.audio_device_index = None
         self.record_audio = True
         # 音频降噪：保存时由 FFmpeg 统一处理（不拖累录制时的 CPU）
-        self.denoise_enabled = True
+        # 强度 0-100（0 = 关闭降噪）；默认 40 约等于 1.5.21 的固定参数（nr≈13 / nf≈-32）
+        self.denoise_strength = 40
         # 关闭窗口时最小化到托盘（后台保活）
         self.minimize_to_tray = True
         self._force_quit = False
@@ -1015,13 +1026,19 @@ class ScreenRecorderApp(QMainWindow):
         return os.path.join(os.path.expanduser("~"), ".super_hi_vision_settings.json")
 
     def load_settings(self):
-        """加载界面偏好（降噪 / 托盘保活），失败一律回退默认值"""
+        """加载界面偏好（降噪强度 / 托盘保活），失败一律回退默认值"""
         try:
             with open(self._settings_file(), 'r', encoding='utf-8') as f:
                 saved = json.load(f) or {}
             if isinstance(saved, dict):
-                if 'denoise' in saved:
-                    self.denoise_enabled = bool(saved['denoise'])
+                if 'denoise_strength' in saved:
+                    try:
+                        self.denoise_strength = max(0, min(100, int(saved['denoise_strength'])))
+                    except (TypeError, ValueError):
+                        pass
+                elif 'denoise' in saved:
+                    # 兼容 1.5.21 及更早的布尔开关：开 = 中度（40），关 = 关闭（0）
+                    self.denoise_strength = 40 if bool(saved['denoise']) else 0
                 if 'minimize_to_tray' in saved:
                     self.minimize_to_tray = bool(saved['minimize_to_tray'])
         except Exception:
@@ -1032,11 +1049,28 @@ class ScreenRecorderApp(QMainWindow):
         try:
             with open(self._settings_file(), 'w', encoding='utf-8') as f:
                 json.dump({
-                    'denoise': bool(self.denoise_enabled),
+                    'denoise_strength': int(self.denoise_strength),
+                    'denoise': bool(int(self.denoise_strength) > 0),   # 兼容旧版本读取
                     'minimize_to_tray': bool(self.minimize_to_tray),
                 }, f, indent=2)
         except Exception:
             pass
+
+    def _denoise_filter_chain(self):
+        """按降噪强度(0-100)生成 FFmpeg 滤波链；0 = 关闭降噪返回空列表。
+
+        映射（ffmpeg 实测：nf 越接近 -20、nr 越大，压掉的底噪越多）：
+          nr = 6 ~ 24，nf = -40 ~ -20 dB；强度 40 ≈ nr 13 / nf -32（≈1.5.21 的固定值）
+        """
+        try:
+            s = max(0, min(100, int(self.denoise_strength)))
+        except (TypeError, ValueError):
+            s = 0
+        if s <= 0:
+            return []
+        nr = round(6 + (s - 1) * 18.0 / 99.0, 1)
+        nf = int(round(-40 + (s - 1) * 20.0 / 99.0))
+        return ['highpass=f=80', f'afftdn=nr={nr}:nf={nf}']
 
     def init_audio_devices(self):
         """初始化音频设备（优先选择系统默认输入设备）"""
@@ -1345,12 +1379,24 @@ class ScreenRecorderApp(QMainWindow):
 
         audio_layout.addLayout(device_layout)
 
-        # 音频降噪（保存阶段由 FFmpeg 统一处理）
-        self.denoise_check = QCheckBox(self.language_manager.get_text('enable_denoise'))
-        self.denoise_check.setChecked(bool(self.denoise_enabled))
-        self.denoise_check.setToolTip(self.language_manager.get_text('denoise_hint'))
-        self.denoise_check.stateChanged.connect(self.on_denoise_changed)
-        audio_layout.addWidget(self.denoise_check)
+        # 音频降噪强度（保存阶段由 FFmpeg 统一处理）
+        denoise_row = QHBoxLayout()
+        denoise_row.addWidget(QLabel(self.language_manager.get_text('denoise_strength')))
+        self.denoise_slider = QSlider(Qt.Horizontal)
+        self.denoise_slider.setRange(0, 100)
+        self.denoise_slider.setSingleStep(5)
+        self.denoise_slider.setPageStep(10)
+        self.denoise_slider.setTickInterval(25)
+        self.denoise_slider.setTickPosition(QSlider.TicksBelow)
+        self.denoise_slider.setValue(int(self.denoise_strength))
+        self.denoise_slider.setToolTip(self.language_manager.get_text('denoise_hint'))
+        self.denoise_slider.valueChanged.connect(self.on_denoise_strength_changed)
+        denoise_row.addWidget(self.denoise_slider, 1)
+        self.denoise_value_label = QLabel('')
+        self.denoise_value_label.setMinimumWidth(96)
+        denoise_row.addWidget(self.denoise_value_label)
+        audio_layout.addLayout(denoise_row)
+        self._refresh_denoise_label()
 
         denoise_hint = QLabel(self.language_manager.get_text('denoise_hint'))
         denoise_hint.setWordWrap(True)
@@ -1478,9 +1524,32 @@ class ScreenRecorderApp(QMainWindow):
         """音频启用状态改变"""
         self.record_audio = (state == Qt.Checked)
 
+    def on_denoise_strength_changed(self, value):
+        """降噪强度滑杆变化"""
+        self.denoise_strength = int(value)
+        self._refresh_denoise_label()
+        self.save_settings()
+
+    def _refresh_denoise_label(self):
+        """刷新降噪强度文字（关闭 / 轻度 / 中度 / 强力 + 百分比）"""
+        try:
+            s = max(0, min(100, int(self.denoise_strength)))
+        except (TypeError, ValueError):
+            s = 0
+        if s <= 0:
+            text = self.language_manager.get_text('denoise_off')
+        elif s <= 33:
+            text = f"{self.language_manager.get_text('denoise_light')} {s}%"
+        elif s <= 66:
+            text = f"{self.language_manager.get_text('denoise_medium')} {s}%"
+        else:
+            text = f"{self.language_manager.get_text('denoise_strong')} {s}%"
+        if getattr(self, 'denoise_value_label', None) is not None:
+            self.denoise_value_label.setText(text)
+
     def on_denoise_changed(self, state):
-        """音频降噪开关"""
-        self.denoise_enabled = (state == Qt.Checked)
+        """兼容旧签名：布尔开关 → 强度 40/0"""
+        self.denoise_strength = 40 if state == Qt.Checked else 0
         self.save_settings()
 
     def on_minimize_to_tray_changed(self, state):
@@ -2409,7 +2478,7 @@ class ScreenRecorderApp(QMainWindow):
 
             # 音频处理链：降噪（可选）→ 响度归一化（解决声音太小/听不见）→ apad 补静音。
             # 逐级降级尝试（见下方 filter_variants），避免某个滤波器不可用就整段失败。
-            denoise_chain = ['highpass=f=80', 'afftdn=nr=12:nf=-30'] if self.denoise_enabled else []
+            denoise_chain = self._denoise_filter_chain()
             loudnorm_chain = ['loudnorm=I=-16:TP=-1.5:LRA=11', 'apad']
             filter_variants = [('降噪+响度归一化', ','.join(denoise_chain + loudnorm_chain))]
             if denoise_chain:
