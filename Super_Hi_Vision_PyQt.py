@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Super Hi Vision - 高级超高清屏幕录制工具 (PyQt5现代化版本)
-版本: 1.5.19
+版本: 1.5.21
 使用PyQt5构建现代化界面，保持原有录制逻辑不变
 支持中英文语言切换
 支持多主题切换
@@ -62,6 +62,77 @@ try:
     _ensure_safe_stdout()
 except Exception:
     pass
+
+
+def _app_dir():
+    """程序所在目录（打包版取 EXE 所在目录：_MEIPASS 是临时解包目录，不能用来写日志）"""
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _install_exception_guard():
+    """把未捕获异常变成「写日志 + 弹窗」，而不是让 PyQt5 直接 abort() 掉整个进程
+
+    PyQt5(>=5.5) 借 sys.excepthook 把槽函数里未捕获的异常交给 qFatal() → abort()，
+    进程当场消失，用户看到的就是「应用自己没了 / 保存完视频之后打不开」。
+    这里接管 sys.excepthook：异常写进程序目录下的 SuperHiVision_error.log 并弹窗，
+    程序继续存活可用（也留下可诊断的现场）。
+    """
+    def _writable(d):
+        """探测目录可写性且不留残留（不能靠建一个空日志文件来试——那样每次启动都会留下空文件）"""
+        probe = os.path.join(d, f".shv_write_test_{os.getpid()}")
+        try:
+            with open(probe, "w", encoding="utf-8"):
+                pass
+            try:
+                os.remove(probe)
+            except Exception:
+                pass
+            return True
+        except Exception:
+            return False
+
+    log_path = os.path.join(_app_dir(), "SuperHiVision_error.log")
+    if not _writable(_app_dir()):
+        # 装在 Program Files 时程序目录通常不可写：退回用户本地应用数据目录
+        candidates = []
+        try:
+            base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+            candidates.append(os.path.join(base, "SuperHiVision"))
+            candidates.append(os.path.expanduser("~"))
+        except Exception:
+            pass
+        for d in candidates:
+            try:
+                os.makedirs(d, exist_ok=True)
+                if _writable(d):
+                    log_path = os.path.join(d, "SuperHiVision_error.log")
+                    break
+            except Exception:
+                continue
+
+    def _hook(exc_type, exc_value, exc_tb):
+        text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        try:
+            sys.stderr.write(text)
+        except Exception:
+            pass
+        try:
+            with open(log_path, "a", encoding="utf-8", errors="replace") as f:
+                f.write(f"\n===== {datetime.now():%Y-%m-%d %H:%M:%S} 未捕获异常 =====\n{text}")
+        except Exception:
+            pass
+        try:
+            show_error_dialog(
+                "程序异常",
+                f"{exc_type.__name__}: {exc_value}\n\n详细堆栈已写入：\n{log_path}"
+            )
+        except Exception:
+            pass
+
+    sys.excepthook = _hook
+    return log_path
 
 
 # ==================== GUI 消息框（应用模式，无控制台） ====================
@@ -148,7 +219,7 @@ if not check_and_install_pyqt5():
         "程序无法启动，PyQt5 依赖不可用！\n\n"
         "请确保已安装 Python 和 pip，然后运行：\n"
         "    pip install PyQt5\n\n"
-        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.19.exe）。"
+        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.21.exe）。"
     )
     sys.exit(1)
 
@@ -156,7 +227,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QComboBox, QSpinBox, QDoubleSpinBox,
     QLineEdit, QGroupBox, QRadioButton, QCheckBox, QTabWidget,
-    QFileDialog, QMessageBox, QProgressBar, QFrame, QScrollArea,
+    QFileDialog, QMessageBox, QProgressBar, QProgressDialog, QFrame, QScrollArea,
     QSplitter, QStatusBar, QSizePolicy, QSlider, QDialog,
     QDialogButtonBox, QTextEdit, QGridLayout, QStyleFactory,
     QSystemTrayIcon, QMenu, QAction, QToolButton
@@ -165,6 +236,7 @@ from PyQt5.QtCore import (
     Qt, QTimer, QThread, pyqtSignal, QSize, QPoint, QRect,
     QObject, QEvent, QCoreApplication, QTranslator, QLibraryInfo
 )
+from PyQt5.QtNetwork import QLocalServer, QLocalSocket
 from PyQt5.QtGui import (
     QFont, QColor, QPalette, QBrush, QLinearGradient, QPainter,
     QIcon, QPixmap, QCursor, QFontDatabase, QKeySequence
@@ -172,6 +244,7 @@ from PyQt5.QtGui import (
 
 import subprocess
 import platform
+import traceback
 import cv2
 import numpy as np
 import pyaudio
@@ -191,7 +264,7 @@ except Exception:
 # ==================== 版本和版权信息 ====================
 __author__ = "QLM Network Entertainment Technology Co., Ltd."
 __copyright__ = "Copyright 2019-2025, QLM Network Entertainment Technology Co., Ltd."
-__version__ = "1.5.19"
+__version__ = "1.5.21"
 __license__ = "MIT"
 __email__ = "qlm@qlm.org.cn"
 __website__ = "https://team.qlm.org.cn"
@@ -213,6 +286,13 @@ def _load_app_icon():
     if os.path.exists(path):
         return QIcon(path)
     return QIcon()
+
+# 全局异常兜底：槽函数里的未捕获异常不再 abort 掉进程，改为写日志 + 弹窗
+try:
+    _install_exception_guard()
+except Exception:
+    pass
+
 
 # ==================== 主题管理器 ====================
 class ThemeManager:
@@ -451,6 +531,14 @@ class LanguageManager:
                 'enable_audio': '启用音频录制',
                 'audio_device': '音频设备',
                 'test_audio': '测试',
+                'enable_denoise': '音频降噪（去除背景底噪 / 电流声）',
+                'denoise_hint': '降噪在保存时统一处理（highpass + afftdn），不增加录制时的 CPU 负担',
+                'minimize_to_tray': '关闭窗口时最小化到托盘（后台继续运行）',
+                'show_window': '显示主窗口',
+                'quit_app': '退出',
+                'tray_running': 'Super Hi Vision 正在后台运行',
+                'tray_tip': 'Super Hi Vision — 后台运行中（双击显示窗口）',
+                'saving_video': '正在保存视频…',
                 'hotkeys': '热键设置',
                 'start_pause': '开始/暂停',
                 'stop': '停止',
@@ -499,6 +587,14 @@ class LanguageManager:
                 'enable_audio': 'Enable Audio Recording',
                 'audio_device': 'Audio Device',
                 'test_audio': 'Test',
+                'enable_denoise': 'Audio Denoise (remove background hiss / hum)',
+                'denoise_hint': 'Denoise is applied while saving (highpass + afftdn), no extra CPU load while recording',
+                'minimize_to_tray': 'Minimize to tray on close (keep running in background)',
+                'show_window': 'Show Window',
+                'quit_app': 'Quit',
+                'tray_running': 'Super Hi Vision is running in the background',
+                'tray_tip': 'Super Hi Vision — running in background (double-click to show)',
+                'saving_video': 'Saving video…',
                 'hotkeys': 'Hotkey Settings',
                 'start_pause': 'Start/Pause',
                 'stop': 'Stop',
@@ -813,6 +909,8 @@ class ScreenRecorderApp(QMainWindow):
     hotkey_triggered = pyqtSignal(str)
     # 二次元主题背景图就绪信号（下载线程 -> 主线程）
     anime_bg_ready = pyqtSignal(str)
+    # 录制线程报告「无法创建视频文件」（录制线程 -> 主线程弹窗）
+    recording_error = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -820,6 +918,12 @@ class ScreenRecorderApp(QMainWindow):
         self.recording = False
         self.paused = False
         self.video_writer = None
+        # 采集参数快照（录制线程只读这些普通属性，不碰 QWidget）
+        self._cap_mode = None
+        self._cap_width = 0
+        self._cap_height = 0
+        # 是否正在保存（FFmpeg 收尾）：禁用录制按钮 / 防重入
+        self._saving = False
         self.mouse_tracker = MouseTracker()
         self.drawing_tool = DrawingTool()
         self.audio_recorder = None
@@ -850,6 +954,16 @@ class ScreenRecorderApp(QMainWindow):
         self.audio_devices = []
         self.audio_device_index = None
         self.record_audio = True
+        # 音频降噪：保存时由 FFmpeg 统一处理（不拖累录制时的 CPU）
+        self.denoise_enabled = True
+        # 关闭窗口时最小化到托盘（后台保活）
+        self.minimize_to_tray = True
+        self._force_quit = False
+        self._tray = None
+        self._tray_notified = False
+        # 单实例通讯服务（由 main() 注入；收到 SHOW 时把窗口唤到前台）
+        self._instance_server = None
+        self.load_settings()
 
         # 热键配置
         self.hotkeys = {
@@ -861,6 +975,7 @@ class ScreenRecorderApp(QMainWindow):
         self.load_hotkeys()
 
         self.hotkey_triggered.connect(self._on_hotkey_triggered)
+        self.recording_error.connect(self._on_recording_error)
         self._hotkey_listener = None
         self._drawing_window = None
 
@@ -894,6 +1009,33 @@ class ScreenRecorderApp(QMainWindow):
             with open(hotkey_file, 'w', encoding='utf-8') as f:
                 json.dump(self.hotkeys, f, indent=2)
         except:
+            pass
+
+    def _settings_file(self):
+        return os.path.join(os.path.expanduser("~"), ".super_hi_vision_settings.json")
+
+    def load_settings(self):
+        """加载界面偏好（降噪 / 托盘保活），失败一律回退默认值"""
+        try:
+            with open(self._settings_file(), 'r', encoding='utf-8') as f:
+                saved = json.load(f) or {}
+            if isinstance(saved, dict):
+                if 'denoise' in saved:
+                    self.denoise_enabled = bool(saved['denoise'])
+                if 'minimize_to_tray' in saved:
+                    self.minimize_to_tray = bool(saved['minimize_to_tray'])
+        except Exception:
+            pass
+
+    def save_settings(self):
+        """保存界面偏好"""
+        try:
+            with open(self._settings_file(), 'w', encoding='utf-8') as f:
+                json.dump({
+                    'denoise': bool(self.denoise_enabled),
+                    'minimize_to_tray': bool(self.minimize_to_tray),
+                }, f, indent=2)
+        except Exception:
             pass
 
     def init_audio_devices(self):
@@ -955,7 +1097,19 @@ class ScreenRecorderApp(QMainWindow):
         main_layout.addWidget(self.tab_widget)
 
         self.create_control_buttons(main_layout)
+
+        # 保存进度条：合成音视频 / 校正帧率时在窗口内实时显示，不弹任何对话框
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0)  # 不确定进度
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFixedHeight(6)
+        self.progress_bar.setVisible(False)
+        main_layout.addWidget(self.progress_bar)
+
         self.create_status_bar(main_layout)
+
+        # 系统托盘（后台保活 / 关闭窗口后继续可用）
+        self.init_tray()
 
     def create_header(self, parent_layout):
         """创建标题栏"""
@@ -1143,6 +1297,16 @@ class ScreenRecorderApp(QMainWindow):
         video_group.setLayout(video_layout)
         layout.addWidget(video_group)
 
+        # 后台保活（关闭窗口不退出，驻留系统托盘）
+        behavior_group = QGroupBox(self.language_manager.get_text('basic_settings'))
+        behavior_layout = QVBoxLayout()
+        self.tray_check = QCheckBox(self.language_manager.get_text('minimize_to_tray'))
+        self.tray_check.setChecked(bool(self.minimize_to_tray))
+        self.tray_check.stateChanged.connect(self.on_minimize_to_tray_changed)
+        behavior_layout.addWidget(self.tray_check)
+        behavior_group.setLayout(behavior_layout)
+        layout.addWidget(behavior_group)
+
         layout.addStretch()
         self.tab_widget.addTab(advanced_widget, self.language_manager.get_text('advanced_settings'))
 
@@ -1180,6 +1344,19 @@ class ScreenRecorderApp(QMainWindow):
         device_layout.addWidget(self.test_audio_btn)
 
         audio_layout.addLayout(device_layout)
+
+        # 音频降噪（保存阶段由 FFmpeg 统一处理）
+        self.denoise_check = QCheckBox(self.language_manager.get_text('enable_denoise'))
+        self.denoise_check.setChecked(bool(self.denoise_enabled))
+        self.denoise_check.setToolTip(self.language_manager.get_text('denoise_hint'))
+        self.denoise_check.stateChanged.connect(self.on_denoise_changed)
+        audio_layout.addWidget(self.denoise_check)
+
+        denoise_hint = QLabel(self.language_manager.get_text('denoise_hint'))
+        denoise_hint.setWordWrap(True)
+        denoise_hint.setStyleSheet(f"color: {self.theme_manager.get_theme()['text_light']}; font-size: 11px;")
+        audio_layout.addWidget(denoise_hint)
+
         audio_group.setLayout(audio_layout)
         layout.addWidget(audio_group)
 
@@ -1300,6 +1477,132 @@ class ScreenRecorderApp(QMainWindow):
     def on_audio_enabled_changed(self, state):
         """音频启用状态改变"""
         self.record_audio = (state == Qt.Checked)
+
+    def on_denoise_changed(self, state):
+        """音频降噪开关"""
+        self.denoise_enabled = (state == Qt.Checked)
+        self.save_settings()
+
+    def on_minimize_to_tray_changed(self, state):
+        """关闭窗口时是否最小化到托盘（后台保活）"""
+        self.minimize_to_tray = (state == Qt.Checked)
+        self.save_settings()
+
+    # ==================== 系统托盘 / 后台保活 ====================
+    def init_tray(self):
+        """创建系统托盘图标：关闭窗口后程序继续在后台运行（录制与全局热键不受影响）"""
+        try:
+            if not QSystemTrayIcon.isSystemTrayAvailable():
+                print("⚠️ 系统托盘不可用，关闭窗口将直接退出")
+                self._tray = None
+                return
+            tray = QSystemTrayIcon(_load_app_icon(), self)
+            tray.setToolTip(self.language_manager.get_text('tray_tip'))
+
+            menu = QMenu()
+            act_show = menu.addAction(self.language_manager.get_text('show_window'))
+            act_show.triggered.connect(self.restore_window)
+
+            act_rec = menu.addAction(self.language_manager.get_text('start_pause'))
+            act_rec.triggered.connect(lambda: self._on_hotkey_triggered('start_pause'))
+
+            act_stop = menu.addAction(self.language_manager.get_text('stop_recording'))
+            act_stop.triggered.connect(lambda: self._on_hotkey_triggered('stop'))
+
+            menu.addSeparator()
+            act_quit = menu.addAction(self.language_manager.get_text('quit_app'))
+            act_quit.triggered.connect(self.quit_app)
+
+            tray.setContextMenu(menu)
+            tray.activated.connect(self._on_tray_activated)
+            tray.show()
+            self._tray = tray
+        except Exception as e:
+            print(f"⚠️ 系统托盘初始化失败: {e}")
+            self._tray = None
+
+    def _on_tray_activated(self, reason):
+        """双击/单击托盘图标 → 把窗口唤回前台"""
+        try:
+            if reason in (QSystemTrayIcon.DoubleClick, QSystemTrayIcon.Trigger):
+                self.restore_window()
+        except Exception:
+            pass
+
+    def _update_tray_tooltip(self, text=None):
+        if self._tray is None:
+            return
+        try:
+            self._tray.setToolTip(text or self.language_manager.get_text('tray_tip'))
+        except Exception:
+            pass
+
+    def _notify_tray_once(self):
+        """首次隐藏到托盘时提示一次（之后保持静默）"""
+        if self._tray is None or self._tray_notified:
+            return
+        self._tray_notified = True
+        try:
+            self._tray.showMessage(
+                "Super Hi Vision",
+                self.language_manager.get_text('tray_running'),
+                QSystemTrayIcon.Information, 3000
+            )
+        except Exception:
+            pass
+
+    def restore_window(self):
+        """把窗口从托盘/最小化状态唤回前台（再次点击程序时也走这里）"""
+        try:
+            self.show()
+            if self.isMinimized():
+                self.setWindowState(self.windowState() & ~Qt.WindowMinimized)
+            self.raise_()
+            self.activateWindow()
+            # Windows 下仅靠 activateWindow 常常拿不到焦点，借用置顶窗口属性强制前台
+            if os.name == 'nt':
+                try:
+                    self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+                    self.show()
+                    self.setWindowFlag(Qt.WindowStaysOnTopHint, False)
+                    self.show()
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"⚠️ 唤起窗口失败: {e}")
+
+    def handle_instance_message(self, message):
+        """收到第二个实例的唤醒请求 → 显示窗口（解决「再次点击应用打不开」）"""
+        try:
+            if message.strip().upper() == 'SHOW':
+                self.restore_window()
+        except Exception:
+            pass
+
+    def quit_app(self):
+        """真正退出（托盘菜单 / 关闭窗口时禁用托盘保活的分支都会走到这里）"""
+        self._force_quit = True
+        try:
+            if self.recording:
+                self.stop_recording()
+        except Exception:
+            pass
+        try:
+            self._stop_global_hotkeys()
+        except Exception:
+            pass
+        if getattr(self, '_instance_server', None) is not None:
+            try:
+                self._instance_server.close()
+            except Exception:
+                pass
+        if self._tray is not None:
+            try:
+                self._tray.hide()
+            except Exception:
+                pass
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        QApplication.quit()
 
     def test_audio(self):
         """测试音频：从所选设备录制约 3 秒并播放，验证音频设备是否可用"""
@@ -1522,6 +1825,10 @@ class ScreenRecorderApp(QMainWindow):
         """开始录制"""
         if self.recording:
             return
+        if getattr(self, '_saving', False):
+            # 正在保存上一段视频（FFmpeg 收尾），此时不接受新的录制请求
+            print("⚠️ 正在保存上一段视频，请稍候再开始录制")
+            return
 
         self.recording = True
         self.paused = False
@@ -1569,17 +1876,19 @@ class ScreenRecorderApp(QMainWindow):
         width -= width % 2
         height -= height % 2
 
-        self.video_writer = self._create_video_writer(self.output_file, width, height)
+        # 采集参数快照到普通属性：录制循环跑在工作线程里，QWidget 非线程安全，
+        # 不能在循环里读 width_spin / follow_*_spin 等控件。
+        self._cap_mode = self.area_mode
+        self._cap_width = width
+        self._cap_height = height
 
-        if self.video_writer is None:
-            self.recording = False
-            self.status_label.setText(self.language_manager.get_text('ready'))
-            QMessageBox.critical(
-                self, "无法开始录制",
-                f"无法创建视频文件：\n{self.output_file}\n\n"
-                f"请确认输出目录可写，或更换视频格式（当前：{self.format}）。"
-            )
-            return
+        # 关键：cv2.VideoWriter 必须在同一个线程里「创建 / 写帧 / 释放」。
+        # 此前是「GUI 线程创建 → 录制线程 write → GUI 线程 release」，跨线程使用
+        # OpenCV 自带的 FFmpeg 封装（opencv_videoio_ffmpeg4110_64.dll）会在释放时
+        # 直接 abort()——Windows 事件日志：异常代码 0x40000015（STATUS_FATAL_APP_EXIT），
+        # 故障模块正是该 dll。表现为「视频保存完成之后应用崩溃 / 打不开」。
+        # 现在写入器由录制线程全权持有，创建失败时经 recording_error 信号回主线程弹窗。
+        self.video_writer = None
 
         if self.record_audio and self.enable_audio_check.isChecked():
             device_index = self.audio_device_combo.currentData()
@@ -1607,51 +1916,76 @@ class ScreenRecorderApp(QMainWindow):
         self.recording_started.emit()
 
     def recording_loop(self):
-        """录制循环"""
-        while self.recording:
-            # 累加有效录制时长（不含暂停），用于录制结束后校正视频帧率
-            if self.last_active_tick > 0 and not self.paused:
-                self.recording_active_seconds += time.time() - self.last_active_tick
-            self.last_active_tick = time.time()
+        """录制循环（运行在工作线程里）
 
-            if not self.paused:
-                try:
-                    if self.area_mode == 'fullscreen':
-                        from PIL import ImageGrab
-                        img = ImageGrab.grab()
-                        frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-                    elif self.area_mode == 'custom':
-                        from PIL import ImageGrab
-                        x, y = 0, 0
-                        w = self.width_spin.value()
-                        h = self.height_spin.value()
-                        img = ImageGrab.grab(bbox=(x, y, w, h))
-                        frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-                    elif self.area_mode == 'follow_mouse':
-                        from PIL import ImageGrab
-                        area = self.mouse_tracker.get_tracking_area_around_cursor(
-                            self.follow_width_spin.value(),
-                            self.follow_height_spin.value()
-                        )
-                        if area:
-                            x, y, w, h = area
-                            img = ImageGrab.grab(bbox=(x, y, x+w, y+h))
+        cv2.VideoWriter 的创建、写帧、释放全部在本线程内完成：OpenCV 自带的
+        FFmpeg 封装不是线程安全的，跨线程 release 会让进程直接 abort()
+        （Windows 事件日志异常代码 0x40000015，故障模块 opencv_videoio_ffmpeg*.dll）。
+        """
+        writer = None
+        try:
+            writer = self._create_video_writer(self.output_file, self._cap_width, self._cap_height)
+        except Exception as e:
+            print(f"❌ 创建视频写入器异常: {e}")
+
+        if writer is None:
+            self.recording = False
+            self.recording_error.emit(
+                f"无法创建视频文件：\n{self.output_file}\n\n"
+                f"请确认输出目录可写，或更换视频格式（当前：{self.format}）。"
+            )
+            return
+
+        self.video_writer = writer
+        try:
+            while self.recording:
+                # 累加有效录制时长（不含暂停），用于录制结束后校正视频帧率
+                if self.last_active_tick > 0 and not self.paused:
+                    self.recording_active_seconds += time.time() - self.last_active_tick
+                self.last_active_tick = time.time()
+
+                if not self.paused:
+                    try:
+                        if self._cap_mode == 'fullscreen':
+                            from PIL import ImageGrab
+                            img = ImageGrab.grab()
                             frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+                        elif self._cap_mode == 'custom':
+                            from PIL import ImageGrab
+                            img = ImageGrab.grab(bbox=(0, 0, self._cap_width, self._cap_height))
+                            frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+                        elif self._cap_mode == 'follow_mouse':
+                            from PIL import ImageGrab
+                            area = self.mouse_tracker.get_tracking_area_around_cursor(
+                                self._cap_width,
+                                self._cap_height
+                            )
+                            if area:
+                                x, y, w, h = area
+                                img = ImageGrab.grab(bbox=(x, y, x+w, y+h))
+                                frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+                            else:
+                                continue
                         else:
                             continue
-                    else:
+
+                        if frame is not None and frame.size > 0:
+                            frame = self.drawing_tool.apply_drawings(frame)
+                            writer.write(frame)
+                            self.frame_count += 1
+
+                    except Exception as e:
+                        print(f"Recording error: {e}")
                         continue
 
-                    if frame is not None and frame.size > 0:
-                        frame = self.drawing_tool.apply_drawings(frame)
-                        self.video_writer.write(frame)
-                        self.frame_count += 1
-
-                except Exception as e:
-                    print(f"Recording error: {e}")
-                    continue
-
-            QThread.msleep(int(1000 / self.fps))
+                QThread.msleep(int(1000 / self.fps))
+        finally:
+            # 释放必须与创建/写帧同线程（见方法开头说明），否则会 abort
+            try:
+                writer.release()
+            except Exception as e:
+                print(f"⚠️ 释放视频写入器失败: {e}")
+            self.video_writer = None
 
     def pause_recording(self):
         """暂停录制"""
@@ -1684,6 +2018,74 @@ class ScreenRecorderApp(QMainWindow):
         self.status_label.setStyleSheet(f"color: {self.theme_manager.get_theme()['danger']};")
         self.recording_resumed.emit()
 
+    def _on_recording_error(self, message):
+        """录制线程无法创建视频文件时回到主线程：复位界面 + 弹窗"""
+        self.recording = False
+        self.video_writer = None
+        try:
+            self.start_btn.setText(self.language_manager.get_text('start_recording'))
+            self.stop_btn.setEnabled(False)
+            self.status_label.setText(self.language_manager.get_text('ready'))
+        except Exception:
+            pass
+        QMessageBox.critical(self, "无法开始录制", message)
+
+    def _set_saving_state(self, saving):
+        """保存（FFmpeg 收尾）期间禁用录制按钮并更新状态文字，避免重复触发"""
+        self._saving = bool(saving)
+        try:
+            if saving:
+                self.start_btn.setEnabled(False)
+                self.stop_btn.setEnabled(False)
+                self.status_label.setText("正在保存视频…")
+            else:
+                self.start_btn.setEnabled(True)
+        except Exception:
+            pass
+
+    def _run_with_busy_progress(self, message, task):
+        """在保持界面响应的前提下执行耗时的 FFmpeg 收尾任务，返回 task() 的返回值
+
+        静默原则：全程不弹任何对话框。进度直接显示在窗口内（状态栏文字 + 进度条），
+        窗口已隐藏到托盘时则只更新托盘提示——用户在录屏/干别的事时不会被打断。
+        主线程持续 processEvents()，所以窗口照常重绘、不会「无响应」被当成卡死。
+        """
+        try:
+            self.status_label.setText(message)
+            self.status_label.setStyleSheet(f"color: {self.theme_manager.get_theme()['accent']};")
+            if hasattr(self, 'progress_bar'):
+                self.progress_bar.setVisible(True)
+        except Exception:
+            pass
+        self._update_tray_tooltip(f"Super Hi Vision — {message}")
+        QApplication.processEvents()
+
+        result: dict = {'value': None, 'error': None}
+
+        def _worker():
+            try:
+                result['value'] = task()
+            except Exception as e:  # 后台线程的异常带回主线程抛，避免静默失败
+                result['error'] = e
+
+        worker = threading.Thread(target=_worker, daemon=True)
+        worker.start()
+        try:
+            while worker.is_alive():
+                QApplication.processEvents()
+                worker.join(0.05)
+        finally:
+            try:
+                if hasattr(self, 'progress_bar'):
+                    self.progress_bar.setVisible(False)
+            except Exception:
+                pass
+            QApplication.processEvents()
+
+        if result['error'] is not None:
+            raise result['error']
+        return result['value']
+
     def stop_recording(self):
         """停止录制"""
         if not self.recording:
@@ -1695,31 +2097,44 @@ class ScreenRecorderApp(QMainWindow):
         if self.timer:
             self.timer.stop()
 
-        # 先等录制线程退出，确保最后一帧写完，再释放写入器：
-        # 线程正在 write() 时 release() 会写坏 mp4 的 moov 索引，文件能生成但无法播放
+        # 等录制线程退出：写入器的 release 由录制线程在退出前完成（同线程创建/写帧/释放，
+        # 见 recording_loop 的说明），这里必须等它真正结束——既保证最后一帧写完，
+        # 也保证文件已关闭后再交给 FFmpeg 处理。
         if self.recording_thread is not None:
             try:
                 if self.recording_thread.isRunning():
-                    self.recording_thread.wait(5000)
+                    self.recording_thread.wait(20000)
             except Exception:
                 pass
+        self.video_writer = None
 
         if self.audio_recorder:
             self.audio_recorder.stop()
             # 等待音频线程结束，确保所有音频帧已被收集
             self.audio_recorder.wait(3000)
 
-        if self.video_writer:
-            self.video_writer.release()
-            self.video_writer = None
-
-        # 校正视频帧率（防止快放/慢放）
-        self.fix_video_playback_speed()
-
-        # 合并音视频（如果录到了音频）
+        # 校正帧率 + 合并音视频都要跑 FFmpeg（可能数十秒）：放后台线程执行，
+        # 主线程用进度对话框驱动事件循环，避免窗口「无响应」被当成卡死/打不开。
+        # 保存阶段的任何异常都必须在这里就地消化——stop_recording 是按钮/热键的槽函数，
+        # 让异常逃出槽函数会被 PyQt5 当成致命错误直接 abort()（进程当场消失）。
+        self._set_saving_state(True)
         audio_merged = False
-        if self.audio_frames and self.output_file:
-            audio_merged = bool(self.merge_audio_video())
+        save_error = None
+        try:
+            def _finalize():
+                self.fix_video_playback_speed()
+                if self.audio_frames and self.output_file:
+                    return bool(self.merge_audio_video())
+                return False
+
+            audio_merged = bool(
+                self._run_with_busy_progress("正在保存视频（校正帧率 / 合成音频），请稍候…", _finalize)
+            )
+        except Exception as e:
+            save_error = e
+            print(f"❌ 保存视频时出错: {e}")
+        finally:
+            self._set_saving_state(False)
 
         self.start_btn.setText(self.language_manager.get_text('start_recording'))
         self.stop_btn.setEnabled(False)
@@ -1737,6 +2152,13 @@ class ScreenRecorderApp(QMainWindow):
                 f"输出路径：{self.output_file}\n格式：{self.format}\n\n"
                 "请更换视频格式（推荐 MP4）或确认输出目录可写后重试。"
             )
+        elif save_error is not None:
+            QMessageBox.warning(
+                self, "保存过程出错",
+                f"视频已保存：\n{self.output_file}\n\n"
+                f"但保存流程（帧率校正 / 音频合成）出错：\n{save_error}\n\n"
+                "若视频无声音或时长不对，请重试或改用 MP4 格式。"
+            )
         elif self.record_audio and self.audio_frames and not audio_merged:
             QMessageBox.warning(
                 self, "有画面无声音",
@@ -1745,7 +2167,12 @@ class ScreenRecorderApp(QMainWindow):
                 "请确认程序目录下的 ffmpeg 文件夹（含 ffmpeg.exe）存在后重试。"
             )
         else:
-            QMessageBox.information(self, "Recording Complete", f"Video saved to:\n{self.output_file}")
+            # 静默完成：不弹窗，只在窗口内状态栏 + 托盘提示（「合成视频不弹窗」）
+            file_name = os.path.basename(self.output_file) if self.output_file else ""
+            self.status_label.setText(f"✅ 已保存 {file_name}")
+            self.status_label.setStyleSheet(f"color: {self.theme_manager.get_theme()['success']};")
+            self._update_tray_tooltip(f"Super Hi Vision — 已保存 {file_name}")
+            print(f"✅ 视频已保存: {self.output_file}")
 
     def on_audio_data(self, data):
         """处理音频数据"""
@@ -1980,9 +2407,14 @@ class ScreenRecorderApp(QMainWindow):
             # MP4/MOV 加 faststart：把索引放到文件头，避免播放器打开即报错/卡顿
             faststart = ['-movflags', '+faststart'] if ext.lower() in ('.mp4', '.mov', '.m4v') else []
 
-            # 响度归一化（解决声音太小/听不见）+ apad 补静音：
-            # 配合 -shortest 保证整段画面都有声音，又不会因为音频比画面短而截断视频
-            audio_filter = 'loudnorm=I=-16:TP=-1.5:LRA=11,apad'
+            # 音频处理链：降噪（可选）→ 响度归一化（解决声音太小/听不见）→ apad 补静音。
+            # 逐级降级尝试（见下方 filter_variants），避免某个滤波器不可用就整段失败。
+            denoise_chain = ['highpass=f=80', 'afftdn=nr=12:nf=-30'] if self.denoise_enabled else []
+            loudnorm_chain = ['loudnorm=I=-16:TP=-1.5:LRA=11', 'apad']
+            filter_variants = [('降噪+响度归一化', ','.join(denoise_chain + loudnorm_chain))]
+            if denoise_chain:
+                filter_variants.append(('无降噪+响度归一化', ','.join(loudnorm_chain)))
+            filter_variants.append(('不做音频处理', None))
 
             # 视频优先流复制（无损、快速）；容器不支持该编码时回退重新编码
             video_attempts = [
@@ -1990,12 +2422,12 @@ class ScreenRecorderApp(QMainWindow):
                 ('重新编码', ['-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-pix_fmt', 'yuv420p']),
             ]
 
-            def build_cmd(video_opts, use_filter=True):
+            def build_cmd(video_opts, audio_filter=None):
                 cmd = [ffmpeg_cmd_exe, '-y', '-i', self.output_file, '-i', temp_audio_file]
                 cmd += video_opts
                 cmd += ['-c:a', 'aac', '-b:a', '128k',
                         '-ar', str(sample_rate), '-ac', str(min(channels, 2))]
-                if use_filter:
+                if audio_filter:
                     cmd += ['-af', audio_filter]
                 cmd += ['-shortest'] + faststart + [temp_output]
                 return cmd
@@ -2003,21 +2435,21 @@ class ScreenRecorderApp(QMainWindow):
             merged = False
             last_err = ''
             for label, video_opts in video_attempts:
-                for use_filter in (True, False):
+                for filter_label, audio_filter in filter_variants:
                     if os.path.exists(temp_output):
                         try:
                             os.remove(temp_output)
                         except Exception:
                             pass
-                    note = "" if use_filter else "，跳过响度归一化"
-                    print(f"🔄 正在合并音视频（{label}{note}）...")
+                    print(f"🔄 正在合并音视频（{label} / {filter_label}）...")
                     result = subprocess.run(
-                        build_cmd(video_opts, use_filter), capture_output=True, text=True,
+                        build_cmd(video_opts, audio_filter), capture_output=True, text=True,
                         creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
                     )
                     if (result.returncode == 0 and os.path.exists(temp_output)
                             and os.path.getsize(temp_output) > 0):
                         merged = True
+                        print(f"✅ 音视频合并成功（{label} / {filter_label}）")
                         break
                     last_err = (result.stderr or '')[-500:]
                 if merged:
@@ -2073,7 +2505,19 @@ class ScreenRecorderApp(QMainWindow):
                 self.file_size_label.setText(f"File Size: {size_mb:.1f} MB")
 
     def closeEvent(self, event):
-        """关闭事件"""
+        """关闭事件
+
+        默认行为是「最小化到托盘、程序继续在后台运行」——关掉窗口不会中断录制，
+        全局热键（F9/F10/F11/F12）依然有效；要真正退出请用托盘菜单的「退出」，
+        或在高级设置里关掉托盘保活。
+        """
+        if (not self._force_quit) and self.minimize_to_tray and self._tray is not None:
+            event.ignore()
+            self.hide()
+            self._notify_tray_once()
+            self._update_tray_tooltip()
+            return
+
         if self.recording:
             reply = QMessageBox.question(
                 self, 'Confirm Exit',
@@ -2094,6 +2538,12 @@ class ScreenRecorderApp(QMainWindow):
         if getattr(self, '_drawing_window', None) is not None:
             try:
                 self._drawing_window.close()
+            except Exception:
+                pass
+
+        if self._tray is not None:
+            try:
+                self._tray.hide()
             except Exception:
                 pass
 
@@ -2457,6 +2907,92 @@ class HotkeyDialog(QDialog):
         return self.new_hotkey
 
 # ==================== 主程序入口 ====================
+# 单实例通讯名：第二个实例启动时通过本机命名管道通知已有实例「把窗口唤到前台」，
+# 解决「程序还在后台跑，再点桌面图标却打不开（看不到窗口）」的问题。
+INSTANCE_SERVER_NAME = "SuperHiVision_SingleInstance_v1"
+
+
+def _notify_running_instance():
+    """若已有实例在运行，通知它显示窗口并返回 True"""
+    try:
+        sock = QLocalSocket()
+        sock.connectToServer(INSTANCE_SERVER_NAME)
+        if sock.waitForConnected(500):
+            sock.write(b"SHOW")
+            sock.flush()
+            sock.waitForBytesWritten(500)
+            # 等一小会儿再断开：立刻 disconnect 时，对端可能先看到「断开」而
+            # 来不及读到管道里剩下的消息，导致窗口唤不起来。
+            try:
+                sock.waitForReadyRead(300)
+            except Exception:
+                pass
+            try:
+                sock.disconnectFromServer()
+            except Exception:
+                pass
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _create_instance_server(window):
+    """注册单实例服务；收到第二个实例的消息时唤起窗口"""
+    try:
+        # 上次异常退出（崩溃 / 强杀）可能残留服务名，先清掉
+        try:
+            QLocalServer.removeServer(INSTANCE_SERVER_NAME)
+        except Exception:
+            pass
+        server = QLocalServer()
+        if not server.listen(INSTANCE_SERVER_NAME):
+            print(f"⚠️ 单实例服务注册失败（{server.errorString()}），程序仍可正常使用")
+            return None
+
+        def _on_new_connection():
+            try:
+                conn = server.nextPendingConnection()
+                if conn is None:
+                    return
+                state = {'handled': False, 'text': ''}
+
+                def _try_read(*_args):
+                    """多次机会读取消息：readyRead / 定时重试 / 断开前最后一次"""
+                    if state['handled']:
+                        return
+                    try:
+                        chunk = bytes(conn.readAll()).decode('utf-8', 'replace')
+                    except Exception:
+                        chunk = ''
+                    if chunk.strip():
+                        state['text'] += chunk
+                        state['handled'] = True
+                        window.handle_instance_message(state['text'])
+                        print("ℹ️ 收到第二个实例的唤醒请求，已显示窗口")
+
+                def _on_disconnected():
+                    _try_read()  # 断开前把管道里剩下的数据读干净
+                    try:
+                        conn.deleteLater()
+                    except Exception:
+                        pass
+
+                conn.readyRead.connect(_try_read)
+                conn.disconnected.connect(_on_disconnected)
+                for delay in (0, 150, 400, 900):
+                    QTimer.singleShot(delay, _try_read)
+            except Exception as e:
+                print(f"⚠️ 处理单实例消息失败: {e}")
+
+        server.newConnection.connect(_on_new_connection)
+        window._instance_server = server
+        return server
+    except Exception as e:
+        print(f"⚠️ 单实例服务初始化失败: {e}")
+        return None
+
+
 def main():
     print("=" * 60)
     print("Super Hi Vision - Advanced HD Screen Recording Tool")
@@ -2471,14 +3007,26 @@ def main():
     app.setApplicationVersion(__version__)
     app.setWindowIcon(_load_app_icon())
 
+    # 已经有实例在跑（可能在托盘里）→ 唤醒它，然后本进程直接退出，
+    # 而不是再开一个「看不见的窗口」或静默失败。
+    if _notify_running_instance():
+        print("ℹ️ 程序已在运行，已请求显示窗口（本进程退出）")
+        return 0
+
+    # 托盘保活期间窗口被隐藏，不能因为「没有可见窗口」就自己退出
+    if QSystemTrayIcon.isSystemTrayAvailable():
+        app.setQuitOnLastWindowClosed(False)
+
     translator = QTranslator(app)
     locale = QLibraryInfo.location(QLibraryInfo.TranslationsPath)
     app.installTranslator(translator)
 
     window = ScreenRecorderApp()
+    _create_instance_server(window)
     window.show()
 
-    sys.exit(app.exec_())
+    return app.exec_()
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

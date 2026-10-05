@@ -1,5 +1,41 @@
 # Super Hi Vision Changelog
 
+## Version 1.5.21 (2026-10-05)
+
+### 新增：音频降噪
+- 音频设置页新增「音频降噪（去除背景底噪 / 电流声）」开关（默认开启，随 `~/.super_hi_vision_settings.json` 持久化）
+- 降噪放在保存阶段由 FFmpeg 统一处理，**不占用录制时的 CPU**：`highpass=f=80`（滤掉低频轰隆/电流声）→ `afftdn=nr=12:nf=-30`（FFT 自适应降噪）→ `loudnorm` 响度归一化 → `apad`
+- 合并命令带**三级降级**：`降噪+响度归一化` → `无降噪+响度归一化` → `不做音频处理`，某个滤波器不可用时不会整段失败（避免「有画面没声音」）
+
+### 修复：应用后台不保活 / 再次点击应用打不开
+- 新增系统托盘（`QSystemTrayIcon`）：关闭窗口默认**最小化到托盘、程序继续在后台运行**——录制不中断、全局热键（F9/F10/F11/F12）照常可用；托盘菜单提供「显示主窗口 / 开始·暂停 / 停止录制 / 退出」
+- `app.setQuitOnLastWindowClosed(False)`：窗口隐藏期间不会被 Qt 当成「最后一个窗口已关闭」而退出
+- 新增**单实例机制**（`QLocalServer`/`QLocalSocket` 本机命名管道）：程序已在运行（可能在托盘里）时，再次点击桌面图标/EXE 会通知已有实例**把窗口唤回前台**，第二个进程随即退出——不再出现「明明在后台跑，点了图标却打不开、也看不到窗口」
+- 唤起窗口时在 Windows 上借用 `WindowStaysOnTopHint` 强制前台（仅 `activateWindow()` 常常抢不到焦点）
+- 高级设置页新增「关闭窗口时最小化到托盘（后台继续运行）」开关，可关掉该行为（关掉后关闭窗口=退出，行为和旧版一致）
+
+### 变更：静默合成视频，不弹窗
+- 保存（帧率校正 / 音视频合并）不再弹出模态进度对话框，改为**窗口内**进度提示：状态栏文字 + 底部不确定进度条，主线程持续 `processEvents()`，窗口既不「无响应」也不打断用户
+- 保存成功不再弹「Recording Complete」对话框，改为状态栏提示 `✅ 已保存 <文件名>` + 托盘提示（窗口在托盘时只更新托盘 tooltip，全程静默）
+- 仅在**失败**时保留对话框（0 字节/合并失败等），避免静默丢文件
+
+### 修复：视频保存完成后应用崩溃 / 打不开（1.5.20 引入的根因修复，本节为当版延续）
+- 根因：`cv2.VideoWriter` 的「创建（GUI 线程）→ 写帧（录制线程）→ 释放（GUI 线程）」跨线程使用。OpenCV 自带的 FFmpeg 封装（`opencv_videoio_ffmpeg*.dll`）不是线程安全的，跨线程 `release()` 时直接 `abort()`——Windows 事件日志：异常代码 `0x40000015`（`STATUS_FATAL_APP_EXIT`），故障模块正是该 dll
+- 写入器由录制线程全权持有（创建 / 写帧 / 释放同线程）；创建失败经 `recording_error` 信号回主线程弹窗
+- 全局异常兜底 `_install_exception_guard()`：槽函数里的未捕获异常改为「写 `SuperHiVision_error.log` + 弹窗」并让程序继续存活（此前 PyQt5 → `qFatal()` → `abort()`）
+- 安装目录不可写时（`Program Files`）日志回退到 `%LOCALAPPDATA%\SuperHiVision\`；卸载脚本补删日志、`resources\`/`ffmpeg\` 用 `RMDir /r` 删净、主程序 `Delete /REBOOTOK`
+
+## Version 1.5.20 (2026-10-05)
+
+### 修复：视频保存完成后应用崩溃 / 打不开
+
+- 根因：`cv2.VideoWriter` 的「创建（GUI 线程）→ 写帧（录制线程）→ 释放（GUI 线程）」跨线程使用。OpenCV 自带的 FFmpeg 封装（`opencv_videoio_ffmpeg*.dll`）不是线程安全的，跨线程 `release()` 时直接 `abort()`——Windows 事件日志：异常代码 `0x40000015`（`STATUS_FATAL_APP_EXIT`），故障模块正是该 dll；表现就是「视频保存完成之后程序自己没了 / 再打开打不开」
+- 现改为写入器由录制线程全权持有（创建 / 写帧 / 释放全部同线程），创建失败经新增 `recording_error` 信号回主线程弹窗（不再从工作线程碰 `QMessageBox`）
+- 录制循环不再读取 `width_spin` / `follow_*_spin` 等 QWidget，改用启动录制时快照的普通属性（`_cap_mode` / `_cap_width` / `_cap_height`），消除工作线程访问控件的隐患
+- 新增全局异常兜底 `_install_exception_guard()`：接管 `sys.excepthook`，槽函数里的未捕获异常改为「写 `SuperHiVision_error.log` + 弹窗」并让程序继续存活。此前 PyQt5 把未捕获异常交给 `qFatal()` → `abort()`，同样表现为进程瞬间消失。日志先探测可写性（探测文件用完即删，不留残留），程序目录不可写时退回 `%LOCALAPPDATA%\SuperHiVision\`
+- 保存阶段（帧率校正 / 音视频合并）改在后台线程执行、主线程以模态进度对话框驱动事件循环：FFmpeg 收尾期间窗口不再「无响应」，也避免被用户当成卡死；保存异常就地捕获并提示
+- 保存期间禁用录制按钮并阻止重入（`_saving` 标志）
+
 ## Version 1.5.19 (2026-10-05)
 
 安装版补全全部依赖文件，并修复打包版「启动即崩溃」与依赖探测误判：
@@ -259,4 +295,4 @@ Super Hi Vision is a professional HD screen recording tool featuring:
 
 **Copyright**: Copyright 2019-2025 QLM Network Entertainment Technology Co., Ltd.
 **Website**: https://team.qlm.org.cn
-**Version**: 1.5.19
+**Version**: 1.5.21

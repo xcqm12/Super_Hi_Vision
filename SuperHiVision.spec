@@ -35,7 +35,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='SuperHiVision_v1.5.19',
+    name='SuperHiVision_v1.5.21',
     icon='icon.ico',
     debug=False,
     bootloader_ignore_signals=False,

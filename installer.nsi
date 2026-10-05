@@ -1,5 +1,5 @@
 ﻿; Super Hi Vision NSIS Installation Script
-; Version: 1.5.19
+; Version: 1.5.21
 ; 应用模式：启动器通过 wscript 运行，无控制台窗口
 ; 安装包已合成全部运行时依赖（EXE + FFmpeg + 环境检测脚本）
 
@@ -12,12 +12,12 @@
 !define DESCRIPTION "Advanced HD Screen Recording Tool"
 !define VERSIONMAJOR 1
 !define VERSIONMINOR 5
-!define VERSIONBUILD 19
+!define VERSIONBUILD 21
 !define HELPURL "https://team.qlm.org.cn"
 !define UPDATEURL "https://team.qlm.org.cn"
 !define ABOUTURL "https://team.qlm.org.cn"
 !define INSTALLSIZE 540000
-!define EXEFILE "SuperHiVision_v1.5.19.exe"
+!define EXEFILE "SuperHiVision_v1.5.21.exe"
 !define LAUNCHERVBS "SuperHiVision_Launcher.vbs"
 
 ; Installer Settings
@@ -118,7 +118,8 @@ SectionEnd
 ; Uninstall Section
 Section "uninstall"
     ; Delete installed files
-    Delete "$INSTDIR\${EXEFILE}"
+    Delete /REBOOTOK "$INSTDIR\${EXEFILE}"
+    Delete "$INSTDIR\SuperHiVision_error.log"
     Delete "$INSTDIR\icon.ico"
     Delete "$INSTDIR\${LAUNCHERVBS}"
     Delete "$INSTDIR\Super_Hi_Vision_App.pyw"
@@ -149,9 +150,9 @@ Section "uninstall"
     ; Delete Desktop shortcut
     Delete "$DESKTOP\${APPNAME}.lnk"
 
-    ; Delete directories
-    RMDir "$INSTDIR\ffmpeg"
-    RMDir "$INSTDIR\resources"
+    ; Delete directories（resources 由程序运行时生成，可能非空；/r 保证删净）
+    RMDir /r "$INSTDIR\ffmpeg"
+    RMDir /r "$INSTDIR\resources"
     RMDir "$INSTDIR"
 
     ; Delete registry info

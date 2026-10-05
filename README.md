@@ -18,6 +18,12 @@
   - 支持麦克风音频录制
   - 自动检测音频设备
   - 音频状态实时显示
+  - **音频降噪**（highpass + afftdn，保存时处理）+ 响度归一化（loudnorm）
+
+- **后台运行（托盘保活）**
+  - 关闭窗口最小化到系统托盘，程序继续在后台运行，录制不中断
+  - 再次点击桌面图标/EXE 会唤出已有窗口（单实例，不会开出第二份）
+  - 保存过程静默进行，只在窗口内显示进度，不弹对话框
 
 - **质量设置**
   - 5档质量预设（低功耗/标准/高清/超清/蓝光）
@@ -35,7 +41,28 @@
 - **多主题支持**
   - 6种精美主题（深色/浅色/海洋/日落/森林/紫色）
 
-## 🩹 最新更新（v1.5.19）
+## 🩹 最新更新（v1.5.21）
+
+**新增音频降噪 + 后台保活（关闭窗口进托盘）+ 再次点击图标能唤出窗口 + 保存静默不弹窗**：
+
+- **🎙️ 音频降噪**：音频设置页新增开关（默认开启）。降噪在保存阶段由 FFmpeg 统一处理，**不增加录制时的 CPU 负担**：`highpass=f=80`（滤低频轰隆/电流声）→ `afftdn=nr=12:nf=-30`（FFT 自适应降噪）→ `loudnorm`（响度归一化）→ `apad`。合并命令带三级降级（降噪+归一化 → 仅归一化 → 不处理），某个滤波器不可用也不会变成「有画面没声音」
+- **🖥️ 后台保活**：新增系统托盘。关闭窗口默认**最小化到托盘、程序继续在后台跑**——录制不中断、F9/F10/F11/F12 全局热键照常可用；托盘菜单有「显示主窗口 / 开始·暂停 / 停止录制 / 退出」。想恢复旧行为可在高级设置里关掉该开关
+- **👆 再次点击图标能唤出窗口**：新增单实例机制（本机命名管道）。程序已在运行（哪怕藏在托盘里）时，再点桌面图标/EXE 会让**已有实例把窗口弹回前台**，第二个进程立即退出——不再出现「明明后台在跑，点图标却打不开」
+- **🔇 静默合成视频，不弹窗**：保存不再弹模态进度框，改为窗口内进度条 + 状态栏文字；保存成功也不再弹「Recording Complete」，只在状态栏显示 `✅ 已保存 <文件名>`（窗口在托盘时仅更新托盘提示）。**只有失败才弹窗**，避免静默丢文件
+- **🧯 修复「保存完成后应用崩溃/打不开」**：根因是 `cv2.VideoWriter` 跨线程使用触发 OpenCV 内置 FFmpeg 封装 `abort()`（事件日志异常代码 `0x40000015`，故障模块 `opencv_videoio_ffmpeg*.dll`）。写入器改为录制线程全权持有；新增全局异常兜底（未捕获异常写 `SuperHiVision_error.log` + 弹窗，程序继续存活）
+- **🧹 安装/卸载更干净**：异常日志「按需创建」（探测不留空文件），装到 `Program Files` 时退回 `%LOCALAPPDATA%\SuperHiVision\`；卸载补删日志、`resources\`/`ffmpeg\` 用 `RMDir /r` 删净、主程序 `Delete /REBOOTOK`
+
+<details><summary>v1.5.20 及更早</summary>
+
+修复「视频保存完成之后应用崩溃 / 打不开」：
+
+- **根因**：`cv2.VideoWriter` 此前是「GUI 线程创建 → 录制线程写帧 → GUI 线程释放」，跨线程使用。OpenCV 自带的 FFmpeg 封装不是线程安全的，跨线程 `release()` 时会让进程直接 `abort()`（Windows 事件日志：异常代码 `0x40000015`，故障模块 `opencv_videoio_ffmpeg*.dll`），表现就是**保存完成的那一刻程序自己消失、再点图标打不开**
+- **修复**：写入器改为由录制线程全权持有（创建 / 写帧 / 释放同线程）；创建失败经新增信号回主线程弹窗；录制循环改用启动时的参数快照，不再从工作线程读取控件
+- **新增全局异常兜底**：未捕获异常不再触发 `qFatal()` → `abort()`，改为写 `SuperHiVision_error.log` 并弹窗提示，程序继续可用
+- **保存过程不再「无响应」**：帧率校正 / 音视频合并改到后台线程，主线程用进度对话框驱动事件循环；保存期间禁用录制按钮，防止重复触发
+- **安装/卸载更干净**：异常日志改为「按需创建」（可写性探测不留空文件），卸载脚本补删 `SuperHiVision_error.log`、`resources\` 目录用 `RMDir /r` 删净、主程序 `Delete /REBOOTOK`（正在运行时卸载不再留残骸）
+
+<details><summary>v1.5.19 及更早</summary>
 
 补齐安装版依赖并修复「打包版启动即崩溃」问题：
 
@@ -44,6 +71,10 @@
 - **安装包补全所有依赖文件**：加入源码回退文件（`Super_Hi_Vision_PyQt.py`、`Super_Hi_Vision.py`、`run.bat`、`requirements.txt`）与 FFmpeg 许可文本（`ffmpeg\FFMPEG_NOTICE.txt`、`ffmpeg\LICENSE_GPLv3.txt`）；内置 FFmpeg 是 `--enable-gpl --enable-version3` 静态构建，分发需附 GPLv3 全文
 - **卸载残留修复**：卸载脚本补删 `icon.ico`，卸载后安装目录不再残留；`EstimatedSize` 由 120MB 修正为 540MB
 - （1.5.18 的「视频合成失败 / 合成后无法播放」修复说明见 `CHANGELOG.md`）
+
+</details>
+
+</details>
 
 > ⚠️ 直接运行的 EXE 需与 `ffmpeg\` 文件夹**放在同一目录**（安装包会自动布置到 `安装目录\ffmpeg\`）。安装版另含源码回退文件（`Super_Hi_Vision_PyQt.py`、`run.bat`、`requirements.txt`）与 FFmpeg 许可文本（`ffmpeg\FFMPEG_NOTICE.txt`、`ffmpeg\LICENSE_GPLv3.txt`），无需另行下载依赖。
 
@@ -64,7 +95,7 @@
 
 ```bash
 # 直接双击运行（无控制台窗口）
-SuperHiVision_v1.5.19.exe
+SuperHiVision_v1.5.21.exe
 ```
 
 #### 方式二：双击 VBS 启动器（自动选择 EXE / Python 源码）
@@ -76,7 +107,7 @@ SuperHiVision_Launcher.vbs
 
 启动器自动按以下优先级选择运行方式：
 
-1. 若同目录存在已打包的 `SuperHiVision_v1.5.19.exe` → 直接启动 EXE
+1. 若同目录存在已打包的 `SuperHiVision_v1.5.21.exe` → 直接启动 EXE
 2. 否则使用 `pythonw.exe`（无控制台）运行 `Super_Hi_Vision_PyQt.py` 源码
 3. 否则运行 `Super_Hi_Vision_App.pyw`（pythonw 启动器）
 4. 最后回退到 `python.exe` 运行源码
@@ -200,7 +231,7 @@ Super_Hi_Vision/
 │   ├── ffmpeg.exe
 │   ├── ffplay.exe
 │   └── ffprobe.exe
-└── SuperHiVision_v1.5.19.exe      # 打包后的可执行文件
+└── SuperHiVision_v1.5.21.exe      # 打包后的可执行文件
 ```
 
 ## 🛠️ 技术栈
@@ -227,4 +258,4 @@ MIT License - 详见 [LICENSE.txt](LICENSE.txt)
 
 **版权**: QLM Network Entertainment Technology Co., Ltd.
 **网站**: https://team.qlm.org.cn
-**版本**: 1.5.19
+**版本**: 1.5.21
