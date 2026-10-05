@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Super Hi Vision - 高级超高清屏幕录制工具 (PyQt5现代化版本)
-版本: 1.5.18
+版本: 1.5.19
 使用PyQt5构建现代化界面，保持原有录制逻辑不变
 支持中英文语言切换
 支持多主题切换
@@ -148,7 +148,7 @@ if not check_and_install_pyqt5():
         "程序无法启动，PyQt5 依赖不可用！\n\n"
         "请确保已安装 Python 和 pip，然后运行：\n"
         "    pip install PyQt5\n\n"
-        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.18.exe）。"
+        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.19.exe）。"
     )
     sys.exit(1)
 
@@ -191,7 +191,7 @@ except Exception:
 # ==================== 版本和版权信息 ====================
 __author__ = "QLM Network Entertainment Technology Co., Ltd."
 __copyright__ = "Copyright 2019-2025, QLM Network Entertainment Technology Co., Ltd."
-__version__ = "1.5.18"
+__version__ = "1.5.19"
 __license__ = "MIT"
 __email__ = "qlm@qlm.org.cn"
 __website__ = "https://team.qlm.org.cn"

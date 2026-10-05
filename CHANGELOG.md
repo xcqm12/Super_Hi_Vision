@@ -1,5 +1,23 @@
 # Super Hi Vision Changelog
 
+## Version 1.5.19 (2026-10-05)
+
+安装版补全全部依赖文件，并修复打包版「启动即崩溃」与依赖探测误判：
+
+### 安装包（`installer.nsi`）
+- 补入源码回退所需文件：`Super_Hi_Vision_PyQt.py`、`Super_Hi_Vision.py`、`run.bat`、`requirements.txt`（此前只有启动器脚本，源码模式必然失败）
+- 随包附带 `ffmpeg\FFMPEG_NOTICE.txt` 与 `ffmpeg\LICENSE_GPLv3.txt`：内置 FFmpeg 为 `--enable-gpl --enable-version3` 静态构建，分发需附许可全文
+- 卸载补删 `icon.ico`（此前卸载后安装目录残留），`EstimatedSize` 由 120MB 修正为 540MB
+
+### 修复：打包版「双击闪退 / 从控制台启动即退出」
+- 根因：启动阶段打印 `✅ 全局热键注册成功: ...` / `❌ 全局热键注册失败: ...` 时，无控制台 EXE 的 `sys.stdout` 为 `None`（`AttributeError`），中文 Windows 下从控制台/管道启动则是 GBK(cp936)（`UnicodeEncodeError`），二者都会把程序崩在初始化阶段
+- 新增 `_ensure_safe_stdout()`：启动最早阶段把 stdout/stderr 就地改为 UTF-8 + `errors="replace"`，缺失时指向 `os.devnull`，保证任何 `print` 都不再抛异常
+- `check_environment.py` 加入同样的兜底（否则「环境检测」在 GBK 控制台下同样会崩）
+
+### 修复：依赖探测误判（`_probe_ffmpeg`）
+- 原先只认 `ffmpeg -version` 横幅里的 `"ffmpeg version"`，导致 `ffprobe`/`ffplay` 即使文件就在 `ffmpeg\` 目录内也被判为「不可用」（`_find_ffmpeg('ffprobe')` 返回 `None`）
+- 现按 `ffmpeg` / `ffprobe` / `ffplay` 三种版本横幅 + 文件名前缀分别判定
+
 ## Version 1.5.18 (2026-10-05)
 
 ### Bug Fixes
@@ -241,4 +259,4 @@ Super Hi Vision is a professional HD screen recording tool featuring:
 
 **Copyright**: Copyright 2019-2025 QLM Network Entertainment Technology Co., Ltd.
 **Website**: https://team.qlm.org.cn
-**Version**: 1.5.18
+**Version**: 1.5.19

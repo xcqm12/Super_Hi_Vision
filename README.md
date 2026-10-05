@@ -35,14 +35,15 @@
 - **多主题支持**
   - 6种精美主题（深色/浅色/海洋/日落/森林/紫色）
 
-## 🩹 最新更新（v1.5.18）
+## 🩹 最新更新（v1.5.19）
 
-修复打包版 EXE「视频合成失败 / 合成后的视频无法播放」问题：
+补齐安装版依赖并修复「打包版启动即崩溃」问题：
 
-- **打包后找不到 FFmpeg**：单文件 EXE 运行时 `__file__` 指向临时解包目录，程序现在按「EXE 所在目录 → 解包目录 → 源码目录 → 常见安装路径 → 系统 PATH」逐级查找并校验 ffmpeg，不再静默跳过音视频合并（此前表现为"录出来没声音 / 合成失败"）
-- **MKV 录出 0 字节文件**：`X264` 编码器在当前 OpenCV 中缺失时会静默失败，现按容器逐个候选编码校验（MKV 回退 `mp4v`），全部失败则明确弹窗报错，不再谎报"录制完成"
-- **音频比画面短会把视频截短**：合成命令增加 `apad` 补静音，整段画面都有声音，且画面不再被截断
-- 其余加固：停止录制先等录制线程退出再释放写入器（避免文件损坏无法播放）、音视频合并多策略重试（流复制 → 重编码 / 响度归一化回退）、MP4/MOV 加 `-movflags +faststart`、录制结束后校验输出文件（0 字节即报失败）
+- **打包版双击闪退 / 从控制台启动即退出**：启动阶段的日志打印遇到无控制台 EXE（`sys.stdout` 为 `None`）或中文 Windows 的 GBK 控制台时会抛 `UnicodeEncodeError` / `AttributeError`，直接把程序崩在初始化。现启动最早阶段统一把 stdout/stderr 改为 UTF-8 + `errors="replace"`（缺失时指向 `os.devnull`），`print` 不再可能抛异常
+- **依赖探测误判**：`_probe_ffmpeg` 原先只认 `ffmpeg -version` 的横幅，导致 `ffprobe` / `ffplay` 即使就在 `ffmpeg\` 目录里也被判为不可用，现已按三种版本横幅分别判定
+- **安装包补全所有依赖文件**：加入源码回退文件（`Super_Hi_Vision_PyQt.py`、`Super_Hi_Vision.py`、`run.bat`、`requirements.txt`）与 FFmpeg 许可文本（`ffmpeg\FFMPEG_NOTICE.txt`、`ffmpeg\LICENSE_GPLv3.txt`）；内置 FFmpeg 是 `--enable-gpl --enable-version3` 静态构建，分发需附 GPLv3 全文
+- **卸载残留修复**：卸载脚本补删 `icon.ico`，卸载后安装目录不再残留；`EstimatedSize` 由 120MB 修正为 540MB
+- （1.5.18 的「视频合成失败 / 合成后无法播放」修复说明见 `CHANGELOG.md`）
 
 > ⚠️ 直接运行的 EXE 需与 `ffmpeg\` 文件夹**放在同一目录**（安装包会自动布置到 `安装目录\ffmpeg\`）。安装版另含源码回退文件（`Super_Hi_Vision_PyQt.py`、`run.bat`、`requirements.txt`）与 FFmpeg 许可文本（`ffmpeg\FFMPEG_NOTICE.txt`、`ffmpeg\LICENSE_GPLv3.txt`），无需另行下载依赖。
 
@@ -63,7 +64,7 @@
 
 ```bash
 # 直接双击运行（无控制台窗口）
-SuperHiVision_v1.5.18.exe
+SuperHiVision_v1.5.19.exe
 ```
 
 #### 方式二：双击 VBS 启动器（自动选择 EXE / Python 源码）
@@ -75,7 +76,7 @@ SuperHiVision_Launcher.vbs
 
 启动器自动按以下优先级选择运行方式：
 
-1. 若同目录存在已打包的 `SuperHiVision_v1.5.18.exe` → 直接启动 EXE
+1. 若同目录存在已打包的 `SuperHiVision_v1.5.19.exe` → 直接启动 EXE
 2. 否则使用 `pythonw.exe`（无控制台）运行 `Super_Hi_Vision_PyQt.py` 源码
 3. 否则运行 `Super_Hi_Vision_App.pyw`（pythonw 启动器）
 4. 最后回退到 `python.exe` 运行源码
@@ -199,7 +200,7 @@ Super_Hi_Vision/
 │   ├── ffmpeg.exe
 │   ├── ffplay.exe
 │   └── ffprobe.exe
-└── SuperHiVision_v1.5.18.exe      # 打包后的可执行文件
+└── SuperHiVision_v1.5.19.exe      # 打包后的可执行文件
 ```
 
 ## 🛠️ 技术栈
@@ -226,4 +227,4 @@ MIT License - 详见 [LICENSE.txt](LICENSE.txt)
 
 **版权**: QLM Network Entertainment Technology Co., Ltd.
 **网站**: https://team.qlm.org.cn
-**版本**: 1.5.18
+**版本**: 1.5.19
