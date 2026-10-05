@@ -1,0 +1,27 @@
+FFmpeg —— 本安装包随附的第三方运行依赖
+====================================
+
+程序内置的 ffmpeg.exe / ffplay.exe / ffprobe.exe 用于屏幕录制后的
+音视频合并与转码（见 Super_Hi_Vision_PyQt.py 中的 ffmpeg 调用）。
+
+版本信息
+--------
+ffmpeg version N-126242-geb0bfa852e-20260822
+built with gcc 15.2.0 (crosstool-NG 1.28.0.23_185f348)
+configuration: --prefix=/ffbuild/prefix --pkg-config-flags=--static --arch=x86_64
+               --target-os=mingw32 --enable-gpl --enable-version3 --disable-debug ...
+（完整编译配置见 ffmpeg -version）
+
+上游来源（静态构建）
+--------------------
+https://github.com/BtbN/FFmpeg-Builds   （ffmpeg-master-latest-win64-gpl）
+FFmpeg 源码与许可说明： https://ffmpeg.org/
+
+许可
+----
+该构建启用了 --enable-gpl --enable-version3，因此以 GNU General Public
+License v3 分发。许可全文见同目录 LICENSE_GPLv3.txt，亦可访问
+https://www.gnu.org/licenses/gpl-3.0.txt 。
+
+本程序（Super Hi Vision）通过命令行调用 FFmpeg，未修改其源代码。
+FFmpeg 是 FFmpeg 团队及其贡献者的商标；本软件与 FFmpeg 项目无隶属关系。

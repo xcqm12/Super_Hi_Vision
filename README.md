@@ -44,7 +44,7 @@
 - **音频比画面短会把视频截短**：合成命令增加 `apad` 补静音，整段画面都有声音，且画面不再被截断
 - 其余加固：停止录制先等录制线程退出再释放写入器（避免文件损坏无法播放）、音视频合并多策略重试（流复制 → 重编码 / 响度归一化回退）、MP4/MOV 加 `-movflags +faststart`、录制结束后校验输出文件（0 字节即报失败）
 
-> ⚠️ 直接运行的 EXE 需与 `ffmpeg\` 文件夹**放在同一目录**（安装包会自动布置到 `安装目录\ffmpeg\`）。
+> ⚠️ 直接运行的 EXE 需与 `ffmpeg\` 文件夹**放在同一目录**（安装包会自动布置到 `安装目录\ffmpeg\`）。安装版另含源码回退文件（`Super_Hi_Vision_PyQt.py`、`run.bat`、`requirements.txt`）与 FFmpeg 许可文本（`ffmpeg\FFMPEG_NOTICE.txt`、`ffmpeg\LICENSE_GPLv3.txt`），无需另行下载依赖。
 
 ---
 

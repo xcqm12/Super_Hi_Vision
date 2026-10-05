@@ -16,7 +16,7 @@
 !define HELPURL "https://team.qlm.org.cn"
 !define UPDATEURL "https://team.qlm.org.cn"
 !define ABOUTURL "https://team.qlm.org.cn"
-!define INSTALLSIZE 120000
+!define INSTALLSIZE 540000
 !define EXEFILE "SuperHiVision_v1.5.18.exe"
 !define LAUNCHERVBS "SuperHiVision_Launcher.vbs"
 
@@ -66,11 +66,20 @@ Section "install"
     File "LICENSE.txt"
     File "README.md"
 
+    ; ---- 源码模式所需（EXE 缺失时 .pyw / 启动器会回退到源码运行）----
+    File "Super_Hi_Vision_PyQt.py"
+    File "Super_Hi_Vision.py"
+    File "run.bat"
+    File "requirements.txt"
+
     ; ---- FFmpeg 依赖（环境检测所需）----
     SetOutPath "$INSTDIR\ffmpeg"
     File "ffmpeg\ffmpeg.exe"
     File "ffmpeg\ffplay.exe"
     File "ffmpeg\ffprobe.exe"
+    ; FFmpeg 为 GPLv3 静态构建，随附版本说明与许可全文
+    File "FFMPEG_NOTICE.txt"
+    File "LICENSE_GPLv3.txt"
 
     SetOutPath $INSTDIR
 
@@ -110,6 +119,7 @@ SectionEnd
 Section "uninstall"
     ; Delete installed files
     Delete "$INSTDIR\${EXEFILE}"
+    Delete "$INSTDIR\icon.ico"
     Delete "$INSTDIR\${LAUNCHERVBS}"
     Delete "$INSTDIR\Super_Hi_Vision_App.pyw"
     Delete "$INSTDIR\Create_Desktop_Shortcut.vbs"
@@ -117,10 +127,16 @@ Section "uninstall"
     Delete "$INSTDIR\LICENSE.txt"
     Delete "$INSTDIR\README.md"
     Delete "$INSTDIR\check_environment.py"
+    Delete "$INSTDIR\Super_Hi_Vision_PyQt.py"
+    Delete "$INSTDIR\Super_Hi_Vision.py"
+    Delete "$INSTDIR\run.bat"
+    Delete "$INSTDIR\requirements.txt"
     Delete "$INSTDIR\uninstall.exe"
     Delete "$INSTDIR\ffmpeg\ffmpeg.exe"
     Delete "$INSTDIR\ffmpeg\ffplay.exe"
     Delete "$INSTDIR\ffmpeg\ffprobe.exe"
+    Delete "$INSTDIR\ffmpeg\FFMPEG_NOTICE.txt"
+    Delete "$INSTDIR\ffmpeg\LICENSE_GPLv3.txt"
 
     ; Delete Start Menu shortcuts
     Delete "$SMPROGRAMS\${APPNAME}\${APPNAME}.lnk"

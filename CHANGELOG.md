@@ -19,6 +19,15 @@
   - 时间戳缩放系数限幅 0.05~20，避免帧率统计异常时视频时长失控
   - 录制结束后校验输出文件（不存在或 0 字节 → 明确提示失败，不再提示成功）
 - `check_environment.py` 同步修复 ffmpeg 查找逻辑（同样枚举可执行文件目录与解包目录）
+- **修复打包版「双击闪退 / 从控制台启动即退出」问题**（`Super_Hi_Vision_PyQt.py`）
+  - 根因：启动阶段打印 `✅ 全局热键注册成功: ...` / `❌ 全局热键注册失败: ...` 时，打包版 `sys.stdout` 要么是 `None`（无控制台 EXE），要么是中文 Windows 的 GBK(cp936) 编码，emoji 字符直接抛 `UnicodeEncodeError` / `AttributeError`，把整个程序崩在初始化阶段
+  - 新增 `_ensure_safe_stdout()`：启动最早阶段把 stdout/stderr 就地改为 UTF-8 + `errors="replace"`，缺失时指向 `os.devnull`，保证任何 `print` 不再抛异常
+  - `check_environment.py` 加入同样的兜底（否则「环境检测」在 GBK 控制台下同样会崩）
+- **修复依赖探测误判**（`Super_Hi_Vision_PyQt.py` 的 `_probe_ffmpeg`）：原先只认 `ffmpeg -version` 横幅里的 `"ffmpeg version"`，导致 `ffprobe`/`ffplay` 即使文件就在 `ffmpeg\` 目录里也被判为「不可用」（`_find_ffmpeg('ffprobe')` 返回 `None`）。现按 `ffmpeg/ffprobe/ffplay` 三种横幅 + 文件名前缀分别判定
+- **安装包补全依赖文件**（`installer.nsi`）
+  - 补入源码模式所需的 `Super_Hi_Vision_PyQt.py`、`Super_Hi_Vision.py`、`run.bat`、`requirements.txt`（此前启动器脚本 `.pyw` / `check_environment.py` 已随包但源码缺失，回退源码运行必失败）
+  - 随包附上 FFmpeg 版本说明与 GPLv3 许可全文（`FFMPEG_NOTICE.txt`、`LICENSE_GPLv3.txt`）：内置 FFmpeg 为 `--enable-gpl --enable-version3` 静态构建，分发需附许可
+  - `EstimatedSize` 由 120MB 修正为 540MB（实际安装体积）
 
 ---
 

@@ -24,6 +24,46 @@ import math
 from datetime import datetime
 from pathlib import Path
 
+# ==================== 控制台编码兜底（打包版 / 中文 Windows 必装） ====================
+def _ensure_safe_stdout():
+    """让 print 在任何环境下都不会把程序打崩。
+
+    打包出的无控制台 EXE 里 sys.stdout 可能是 None；从控制台/管道启动时它又常是
+    GBK(cp936) 编码，打印 ✅❌⚠️ 这类字符会抛 UnicodeEncodeError。两种情况都发生在
+    启动阶段（例如全局热键注册成功/失败时的那一句 print），会直接把整个程序崩掉，
+    表现为"双击闪退 / 刚打开就没了"。这里统一改成 UTF-8 + errors=replace，
+    stdout 缺失时换成黑洞对象，保证 print 永不抛异常。
+    """
+    import io
+
+    sink = None
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name, None)
+        if stream is None:
+            if sink is None:
+                sink = open(os.devnull, "w", encoding="utf-8", errors="replace")
+            setattr(sys, name, sink)
+            continue
+        try:  # 首选：就地改编码（Python 3.7+）
+            stream.reconfigure(encoding="utf-8", errors="replace")
+            continue
+        except Exception:
+            pass
+        try:  # 退路：用同一底层缓冲重新包一层 UTF-8
+            buffer = getattr(stream, "buffer", None)
+            if buffer is not None:
+                setattr(sys, name, io.TextIOWrapper(buffer, encoding="utf-8",
+                                                    errors="replace", line_buffering=True))
+        except Exception:
+            pass
+
+
+try:
+    _ensure_safe_stdout()
+except Exception:
+    pass
+
+
 # ==================== GUI 消息框（应用模式，无控制台） ====================
 def show_error_dialog(title, message):
     """使用 Windows 原生消息框显示错误（不依赖 PyQt5/tkinter）"""
@@ -1798,7 +1838,15 @@ class ScreenRecorderApp(QMainWindow):
                 [cmd, "-version"], capture_output=True, text=True, timeout=15,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
-            return result.returncode == 0 and "ffmpeg version" in (result.stdout or "")
+            out = ((result.stdout or "") + (result.stderr or "")).lower()
+            if result.returncode != 0 or "version" not in out:
+                return False
+            # ffmpeg -version / ffprobe -version / ffplay -version 的横幅文本各不相同
+            # （分别是 "ffmpeg version" / "ffprobe version" / "ffplay version"），
+            # 早期只认 "ffmpeg version" 会让 ffprobe/ffplay 的候选全部被判为不可用。
+            base = os.path.basename(cmd).lower()
+            return any(t in out for t in ("ffmpeg version", "ffprobe version", "ffplay version")) \
+                or base.startswith(("ffmpeg", "ffprobe", "ffplay"))
         except Exception:
             return False
 

@@ -5,6 +5,41 @@ import platform
 import tempfile
 import shutil
 
+
+def _ensure_safe_stdout():
+    """中文 Windows 下 stdout 常是 GBK(cp936)，print 里带 ✅❌⚠️ 会抛
+    UnicodeEncodeError 直接崩掉脚本；无控制台启动时 stdout 还可能是 None。
+    这里统一改成 UTF-8 + errors=replace，缺失时换成黑洞对象，保证 print 不抛异常。"""
+    import io
+
+    sink = None
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name, None)
+        if stream is None:
+            if sink is None:
+                sink = open(os.devnull, "w", encoding="utf-8", errors="replace")
+            setattr(sys, name, sink)
+            continue
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+            continue
+        except Exception:
+            pass
+        try:
+            buffer = getattr(stream, "buffer", None)
+            if buffer is not None:
+                setattr(sys, name, io.TextIOWrapper(buffer, encoding="utf-8",
+                                                    errors="replace", line_buffering=True))
+        except Exception:
+            pass
+
+
+try:
+    _ensure_safe_stdout()
+except Exception:
+    pass
+
+
 # 国内镜像源列表
 MIRROR_SOURCES = [
     {
