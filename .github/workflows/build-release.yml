@@ -1,6 +1,6 @@
 name: Build & Release
 
-# 推送 v* 标签（如 v1.5.22）时触发：自动打包 exe + NSIS 安装包并发布正式版
+# 推送 v* 标签（如 v1.5.23）时触发：自动打包 exe + NSIS 安装包并发布正式版
 on:
   push:
     tags:
@@ -56,8 +56,8 @@ jobs:
       - name: Prepare NSIS input files
         shell: pwsh
         run: |
-          Copy-Item -Path "dist/SuperHiVision_v1.5.22.exe" -Destination "SuperHiVision_v1.5.22.exe" -Force
-          Get-ChildItem "SuperHiVision_v1.5.22.exe" | Select-Object Name, Length
+          Copy-Item -Path "dist/SuperHiVision_v1.5.23.exe" -Destination "SuperHiVision_v1.5.23.exe" -Force
+          Get-ChildItem "SuperHiVision_v1.5.23.exe" | Select-Object Name, Length
 
       - name: Build NSIS installer
         shell: pwsh
@@ -69,8 +69,8 @@ jobs:
         with:
           name: SuperHiVision-${{ github.ref_name }}
           path: |
-            dist/SuperHiVision_v1.5.22.exe
-            SuperHiVision_Setup_v1.5.22.exe
+            dist/SuperHiVision_v1.5.23.exe
+            SuperHiVision_Setup_v1.5.23.exe
 
       - name: Create GitHub Release (正式版)
         uses: softprops/action-gh-release@v2
@@ -79,26 +79,28 @@ jobs:
           body: |
             ## Super Hi Vision ${{ github.ref_name }} 正式版
 
-            ### 🆕 本次更新（v1.5.22）
-            - 🎚️ **降噪强度滑杆（0-100%）**：音频页原来的开关改成滑杆，0 = 关闭，往右 轻度/中度/强力，默认 40%
-            - 📈 **参数随滑杆实时改变**：`afftdn=nr=6~24:nf=-40~-20`（越右压得越狠），仍走 `highpass → afftdn → loudnorm → apad` 的三级降级链
-            - 💾 **随设置持久化**：写入 `~/.super_hi_vision_settings.json` 的 `denoise_strength`；旧的 `denoise` 布尔开关自动折算为 40%/关闭
-            - 🧪 **实测标定**：粉噪声样本上强度 20/40/60/80/100 的输出底噪 -43.1/-46.2/-51.0/-57.4/-62.3 dB，单调下降
-            - 🖥️ 保留 1.5.21 的后台托盘保活、二次点击唤出窗口、静默合成与保存崩溃修复
+            ### 🆕 本次更新（v1.5.23）
+            - 📦 **FFmpeg 内置进单文件 exe**：绿色版拷到任意目录都能合成音频，不再出现「有画面无声音」（不再分发 ffplay，省约 150MB）
+            - 🐛 **修复「有画面无声音」**：根因是绿色版 exe 不带 FFmpeg，单独拷到别处后音视频合成失败；旧提示既没说清该放哪，也没保住录到的音频
+            - 🔎 **查找范围加宽**：外置 ffmpeg\ → 内置 → bin\ → 上一级 → %LOCALAPPDATA% → C:fmpegin / scoop / choco → 注册表 → PATH；结果缓存
+            - 🔊 **失败也不丢音频**：合并失败时把 WAV 另存为 `xxx.audio.wav` 并给出路径
+            - 🧾 **原因明确**：区分「未找到 FFmpeg」（给出确切该放的路径）与「FFmpeg 报错」（附错误尾部），现场写入 error.log
+            - ✅ **新增「检查 FFmpeg」自检**：高级设置页常驻状态 + 一键重新探测
+            - 🎚️ 保留 1.5.23 的降噪强度滑杆、托盘保活、二次点击唤出窗口、静默合成与保存崩溃修复
 
             ### 📦 包含内容
-            - **SuperHiVision_v1.5.22.exe** — 单文件绿色版（约 95MB，无需安装 Python）
-            - **SuperHiVision_Setup_v1.5.22.exe** — NSIS 完整安装包（含 FFmpeg，自动创建桌面/开始菜单快捷方式）
+            - **SuperHiVision_v1.5.23.exe** — 单文件绿色版（内置 FFmpeg，拷到任意目录都能用）
+            - **SuperHiVision_Setup_v1.5.23.exe** — NSIS 完整安装包（自动创建桌面/开始菜单快捷方式）
 
             ### 🚀 使用说明
-            - **绿色版**：直接双击即可运行
+            - **绿色版**：直接双击即可运行（FFmpeg 已内置，无需额外放 ffmpeg 文件夹）
             - **安装包**：安装到 `Program Files`，更规范，支持卸载
 
             ### ✅ 环境要求
             - Windows 10 / 11 64 位
             - 无需安装 Python / VC++ 运行库（已内置）
           files: |
-            dist/SuperHiVision_v1.5.22.exe
-            SuperHiVision_Setup_v1.5.22.exe
+            dist/SuperHiVision_v1.5.23.exe
+            SuperHiVision_Setup_v1.5.23.exe
           draft: false
           prerelease: false

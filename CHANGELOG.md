@@ -1,5 +1,16 @@
 # Super Hi Vision Changelog
 
+## Version 1.5.23 (2026-10-06)
+
+### 修复：保存后「有画面无声音」
+- **根因**：绿色版 exe 本身不带 FFmpeg，一旦被单独拷到别处（如 `F:\videos`），保存阶段的音视频合成直接失败 —— 视频写出来了却没声音，而且旧提示只让用户「确认 ffmpeg 文件夹存在」，既没说清去哪找、也没保住录到的音频
+- **FFmpeg 现在内置进单文件 exe**：`ffmpeg.exe` + `ffprobe.exe` 随包解到 `_MEIPASSfmpeg\`，绿色版拷到任意目录都能合成音频；不再分发无用的 `ffplay.exe`（省约 150MB）
+- **查找范围大幅加宽**（按优先级）：`<exe目录>fmpeg`（外置优先，可自行替换版本）→ `_MEIPASSfmpeg`（内置）→ `<exe目录>in` → 上一级目录 → `%LOCALAPPDATA%` → `C:fmpegin` / Program Files / scoop / chocolatey → 注册表 `HKLM|HKCU\SOFTWAREfmpeg` → 系统 PATH；候选结果缓存，一次录制只探测一次
+- **合并失败绝不丢音频**：改为把 WAV 另存为与视频同名的 `xxx.audio.wav`，提示里给出完整路径，装上 FFmpeg 后可再合成
+- **失败原因不再含糊**：对话框区分「未找到 FFmpeg」（明确给出该放的确切路径）与「FFmpeg 跑了但报错」（附 FFmpeg 错误尾部），并把完整现场写进错误日志
+- **新增「检查 FFmpeg」自检**：高级设置页常驻显示 FFmpeg 状态（✅ 路径 / ❌ 缺失），一键重新探测并弹出结论
+- **帧率校正同样受益**：以前找不到 FFmpeg 时帧率校正会静默跳过（导致快放/慢放），现在同样能找到内置副本
+
 ## Version 1.5.22 (2026-10-05)
 
 ### 新增：降噪强度可调滑杆（0-100%）

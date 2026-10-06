@@ -1,5 +1,5 @@
 ﻿; Super Hi Vision NSIS Installation Script
-; Version: 1.5.22
+; Version: 1.5.23
 ; 应用模式：启动器通过 wscript 运行，无控制台窗口
 ; 安装包已合成全部运行时依赖（EXE + FFmpeg + 环境检测脚本）
 
@@ -12,12 +12,12 @@
 !define DESCRIPTION "Advanced HD Screen Recording Tool"
 !define VERSIONMAJOR 1
 !define VERSIONMINOR 5
-!define VERSIONBUILD 22
+!define VERSIONBUILD 23
 !define HELPURL "https://team.qlm.org.cn"
 !define UPDATEURL "https://team.qlm.org.cn"
 !define ABOUTURL "https://team.qlm.org.cn"
 !define INSTALLSIZE 540000
-!define EXEFILE "SuperHiVision_v1.5.22.exe"
+!define EXEFILE "SuperHiVision_v1.5.23.exe"
 !define LAUNCHERVBS "SuperHiVision_Launcher.vbs"
 
 ; Installer Settings
@@ -53,9 +53,8 @@ Section "install"
 
     ; Create subdirectories
     CreateDirectory "$INSTDIR\resources"
-    CreateDirectory "$INSTDIR\ffmpeg"
 
-    ; ---- 主程序（EXE 已包含全部 Python 依赖）----
+    ; ---- 主程序（EXE 已包含全部 Python 依赖 + 内置 FFmpeg）----
     File "${EXEFILE}"
     File "icon.ico"
     File "${LAUNCHERVBS}"
@@ -72,12 +71,11 @@ Section "install"
     File "run.bat"
     File "requirements.txt"
 
-    ; ---- FFmpeg 依赖（环境检测所需）----
-    SetOutPath "$INSTDIR\ffmpeg"
-    File "ffmpeg\ffmpeg.exe"
-    File "ffmpeg\ffplay.exe"
-    File "ffmpeg\ffprobe.exe"
-    ; FFmpeg 为 GPLv3 静态构建，随附版本说明与许可全文
+    ; ---- FFmpeg：不再单独分发 ----
+    ; 自 v1.5.23 起 ffmpeg.exe / ffprobe.exe 已内置在单文件主程序里（解包到 _MEIPASS），
+    ; 这里再放一份会让安装包白白多出 ~200MB；用户仍可在 $INSTDIR\ffmpeg 下自备一份
+    ; 来覆盖内置版本（程序优先使用外置的）。
+    ; FFmpeg 为 GPLv3 静态构建，随附版本说明与许可全文（合规要求，必须保留）
     File "FFMPEG_NOTICE.txt"
     File "LICENSE_GPLv3.txt"
 
@@ -133,11 +131,15 @@ Section "uninstall"
     Delete "$INSTDIR\run.bat"
     Delete "$INSTDIR\requirements.txt"
     Delete "$INSTDIR\uninstall.exe"
+    ; 旧版本（≤1.5.22）曾在 $INSTDIR\ffmpeg 下放外置 FFmpeg，升级安装后这里可能还留着
     Delete "$INSTDIR\ffmpeg\ffmpeg.exe"
     Delete "$INSTDIR\ffmpeg\ffplay.exe"
     Delete "$INSTDIR\ffmpeg\ffprobe.exe"
     Delete "$INSTDIR\ffmpeg\FFMPEG_NOTICE.txt"
     Delete "$INSTDIR\ffmpeg\LICENSE_GPLv3.txt"
+    ; v1.5.23 起 FFmpeg 版本说明与 GPLv3 全文放在安装根目录
+    Delete "$INSTDIR\FFMPEG_NOTICE.txt"
+    Delete "$INSTDIR\LICENSE_GPLv3.txt"
 
     ; Delete Start Menu shortcuts
     Delete "$SMPROGRAMS\${APPNAME}\${APPNAME}.lnk"

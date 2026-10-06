@@ -4,11 +4,24 @@ import os
 
 block_cipher = None
 
+# FFmpeg 随包分发：单文件 exe 解包到 _MEIPASS\ffmpeg\，程序启动时按
+# <exe目录>\ffmpeg → _MEIPASS\ffmpeg 的顺序查找。
+# 这样「绿色版」exe 单独拷到任何地方都能合成音频，不再出现「有画面无声音」。
+# 只带 ffmpeg.exe + ffprobe.exe（合成/探测用得上），不带 ffplay（无人调用，省 ~150MB）。
+_datas = [('icon.ico', '.')]
+for _f in ('ffmpeg.exe', 'ffprobe.exe'):
+    _p = os.path.join('ffmpeg', _f)
+    if os.path.exists(_p):
+        _datas.append((_p, 'ffmpeg'))
+        print(f'[spec] 打包内置 FFmpeg: {_p}')
+    else:
+        print(f'[spec] 警告: 未找到 {_p}，将不带内置 FFmpeg（音视频合成可能失败）')
+
 a = Analysis(
     ['Super_Hi_Vision_PyQt.py'],
     pathex=[],
     binaries=[],
-    datas=[('icon.ico', '.')],
+    datas=_datas,
     hiddenimports=[
         'cv2', 'PIL', 'numpy', 'pyaudio', 'wave', 'struct', 'math',
         'PyQt5', 'PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets',
@@ -35,7 +48,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='SuperHiVision_v1.5.22',
+    name='SuperHiVision_v1.5.23',
     icon='icon.ico',
     debug=False,
     bootloader_ignore_signals=False,

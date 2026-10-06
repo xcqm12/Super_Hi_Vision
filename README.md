@@ -41,7 +41,19 @@
 - **多主题支持**
   - 6种精美主题（深色/浅色/海洋/日落/森林/紫色）
 
-## 🩹 最新更新（v1.5.22）
+## 🩹 最新更新（v1.5.23）
+
+**修复保存后「有画面无声音」——FFmpeg 现在内置进 exe，绿色版拷到哪都能合成音频**：
+
+- **🐛 根因**：绿色版 exe 本身不带 FFmpeg，单独拷到别处（例如和视频一起放在 `F:\videos`）后，保存阶段的音视频合成会失败——视频写出来了但**没有声音**，而且旧提示只让用户「确认 ffmpeg 文件夹存在」，既没说清该放哪，也没保住已经录到的音频
+- **📦 FFmpeg 内置进单文件 exe**：`ffmpeg.exe` + `ffprobe.exe` 随包解到 `_MEIPASS\ffmpeg\`，绿色版拷到任意目录都能合成音频；不再分发用不到的 `ffplay.exe`（省约 150MB）。外置的 `<exe目录>\ffmpeg\` 仍优先（可自行替换版本）
+- **🔎 查找范围大幅加宽**：外置 `ffmpeg\` → 内置 → `bin\` → 上一级目录 → `%LOCALAPPDATA%` → `C:\ffmpeg\bin` / Program Files / scoop / chocolatey → 注册表 `HKLM|HKCU\SOFTWARE\ffmpeg` → 系统 PATH；结果缓存，一次录制只探测一次
+- **🔊 合并失败也绝不丢音频**：把 WAV 另存为与视频同名的 `xxx.audio.wav`，提示里直接给出完整路径
+- **🧾 失败原因不再含糊**：区分「未找到 FFmpeg」（明确告诉你该把它放到哪个确切路径）和「FFmpeg 跑了但报错」（附 FFmpeg 错误尾部），完整现场写进 `SuperHiVision_error.log`
+- **✅ 新增「检查 FFmpeg」自检**：高级设置页常驻显示 FFmpeg 状态（✅ 路径 / ❌ 缺失），一键重新探测给出结论
+- **🎞️ 帧率校正同样受益**：以前找不到 FFmpeg 时帧率校正会静默跳过（表现为快放/慢放），现在也能用到内置副本
+
+<details><summary>v1.5.22 版新增</summary>
 
 **音频降噪强度改成可调滑杆（0-100%）**：
 
@@ -49,6 +61,8 @@
 - **滑杆值实时生效并持久化**：写入 `~/.super_hi_vision_settings.json` 的 `denoise_strength`，保存视频时直接反映到 FFmpeg 降噪链：`highpass=f=80` → `afftdn=nr=6~24:nf=-40~-20` → `loudnorm=I=-16:TP=-1.5:LRA=11` → `apad`
 - **参数含义**：`nr` = 降噪量（6 → 24），`nf` = 噪声底（-40 → -20 dB，越接近 -20 压得越狠）。实测粉噪声样本，强度 20/40/60/80/100 的输出底噪为 **-43.1 / -46.2 / -51.0 / -57.4 / -62.3 dB**（原始 -36.2 dB），单调递增地压得更干净
 - **兼容旧设置**：老版本写的 `{"denoise": true/false}` 读入后自动折算为 40% / 关闭，不会因为升级丢配置
+
+</details>
 
 <details><summary>v1.5.21 版新增</summary>
 
@@ -87,7 +101,7 @@
 
 </details>
 
-> ⚠️ 直接运行的 EXE 需与 `ffmpeg\` 文件夹**放在同一目录**（安装包会自动布置到 `安装目录\ffmpeg\`）。安装版另含源码回退文件（`Super_Hi_Vision_PyQt.py`、`run.bat`、`requirements.txt`）与 FFmpeg 许可文本（`ffmpeg\FFMPEG_NOTICE.txt`、`ffmpeg\LICENSE_GPLv3.txt`），无需另行下载依赖。
+> ⚠️ **v1.5.23 起 EXE 已内置 FFmpeg**（`ffmpeg.exe` + `ffprobe.exe` 会解包到 `_MEIPASS\ffmpeg\`），绿色版单独拷到任何目录都能合成音频，**不再需要另外准备 `ffmpeg\` 文件夹**。想用自备版本时，把 `ffmpeg\` 放在 exe 同级目录即可覆盖内置（程序优先用外置）。安装版含源码回退文件（`Super_Hi_Vision_PyQt.py`、`run.bat`、`requirements.txt`）与 FFmpeg 许可文本（`FFMPEG_NOTICE.txt`、`LICENSE_GPLv3.txt`），无需另行下载依赖。
 
 ---
 
@@ -106,7 +120,7 @@
 
 ```bash
 # 直接双击运行（无控制台窗口）
-SuperHiVision_v1.5.22.exe
+SuperHiVision_v1.5.23.exe
 ```
 
 #### 方式二：双击 VBS 启动器（自动选择 EXE / Python 源码）
@@ -118,7 +132,7 @@ SuperHiVision_Launcher.vbs
 
 启动器自动按以下优先级选择运行方式：
 
-1. 若同目录存在已打包的 `SuperHiVision_v1.5.22.exe` → 直接启动 EXE
+1. 若同目录存在已打包的 `SuperHiVision_v1.5.23.exe` → 直接启动 EXE
 2. 否则使用 `pythonw.exe`（无控制台）运行 `Super_Hi_Vision_PyQt.py` 源码
 3. 否则运行 `Super_Hi_Vision_App.pyw`（pythonw 启动器）
 4. 最后回退到 `python.exe` 运行源码
@@ -242,7 +256,7 @@ Super_Hi_Vision/
 │   ├── ffmpeg.exe
 │   ├── ffplay.exe
 │   └── ffprobe.exe
-└── SuperHiVision_v1.5.22.exe      # 打包后的可执行文件
+└── SuperHiVision_v1.5.23.exe      # 打包后的可执行文件
 ```
 
 ## 🛠️ 技术栈
@@ -269,4 +283,4 @@ MIT License - 详见 [LICENSE.txt](LICENSE.txt)
 
 **版权**: QLM Network Entertainment Technology Co., Ltd.
 **网站**: https://team.qlm.org.cn
-**版本**: 1.5.22
+**版本**: 1.5.23

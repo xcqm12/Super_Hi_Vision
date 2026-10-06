@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Super Hi Vision - 高级超高清屏幕录制工具 (PyQt5现代化版本)
-版本: 1.5.22
+版本: 1.5.23
 使用PyQt5构建现代化界面，保持原有录制逻辑不变
 支持中英文语言切换
 支持多主题切换
@@ -71,31 +71,28 @@ def _app_dir():
     return os.path.dirname(os.path.abspath(__file__))
 
 
-def _install_exception_guard():
-    """把未捕获异常变成「写日志 + 弹窗」，而不是让 PyQt5 直接 abort() 掉整个进程
-
-    PyQt5(>=5.5) 借 sys.excepthook 把槽函数里未捕获的异常交给 qFatal() → abort()，
-    进程当场消失，用户看到的就是「应用自己没了 / 保存完视频之后打不开」。
-    这里接管 sys.excepthook：异常写进程序目录下的 SuperHiVision_error.log 并弹窗，
-    程序继续存活可用（也留下可诊断的现场）。
-    """
-    def _writable(d):
-        """探测目录可写性且不留残留（不能靠建一个空日志文件来试——那样每次启动都会留下空文件）"""
-        probe = os.path.join(d, f".shv_write_test_{os.getpid()}")
+def _dir_writable(d):
+    """探测目录可写性且不留残留（不能靠建一个空日志文件来试——那样每次启动都会留下空文件）"""
+    probe = os.path.join(d, f".shv_write_test_{os.getpid()}")
+    try:
+        with open(probe, "w", encoding="utf-8"):
+            pass
         try:
-            with open(probe, "w", encoding="utf-8"):
-                pass
-            try:
-                os.remove(probe)
-            except Exception:
-                pass
-            return True
+            os.remove(probe)
         except Exception:
-            return False
+            pass
+        return True
+    except Exception:
+        return False
 
+
+ERROR_LOG_PATH = None
+
+
+def _resolve_error_log_path():
+    """定位可写的错误日志路径（程序目录不可写时退回 %LOCALAPPDATA%\\SuperHiVision）"""
     log_path = os.path.join(_app_dir(), "SuperHiVision_error.log")
-    if not _writable(_app_dir()):
-        # 装在 Program Files 时程序目录通常不可写：退回用户本地应用数据目录
+    if not _dir_writable(_app_dir()):
         candidates = []
         try:
             base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
@@ -106,11 +103,39 @@ def _install_exception_guard():
         for d in candidates:
             try:
                 os.makedirs(d, exist_ok=True)
-                if _writable(d):
+                if _dir_writable(d):
                     log_path = os.path.join(d, "SuperHiVision_error.log")
                     break
             except Exception:
                 continue
+    return log_path
+
+
+def _log_path():
+    global ERROR_LOG_PATH
+    if ERROR_LOG_PATH is None:
+        ERROR_LOG_PATH = _resolve_error_log_path()
+    return ERROR_LOG_PATH
+
+
+def log_diagnostic(text):
+    """把诊断信息（如音视频合并失败的真实原因）追加进错误日志，便于用户回传现场"""
+    try:
+        with open(_log_path(), "a", encoding="utf-8", errors="replace") as f:
+            f.write(f"\n===== {datetime.now():%Y-%m-%d %H:%M:%S} {text}\n")
+    except Exception:
+        pass
+
+
+def _install_exception_guard():
+    """把未捕获异常变成「写日志 + 弹窗」，而不是让 PyQt5 直接 abort() 掉整个进程
+
+    PyQt5(>=5.5) 借 sys.excepthook 把槽函数里未捕获的异常交给 qFatal() → abort()，
+    进程当场消失，用户看到的就是「应用自己没了 / 保存完视频之后打不开」。
+    这里接管 sys.excepthook：异常写进程序目录下的 SuperHiVision_error.log 并弹窗，
+    程序继续存活可用（也留下可诊断的现场）。
+    """
+    log_path = _log_path()
 
     def _hook(exc_type, exc_value, exc_tb):
         text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
@@ -219,7 +244,7 @@ if not check_and_install_pyqt5():
         "程序无法启动，PyQt5 依赖不可用！\n\n"
         "请确保已安装 Python 和 pip，然后运行：\n"
         "    pip install PyQt5\n\n"
-        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.22.exe）。"
+        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.23.exe）。"
     )
     sys.exit(1)
 
@@ -264,7 +289,7 @@ except Exception:
 # ==================== 版本和版权信息 ====================
 __author__ = "QLM Network Entertainment Technology Co., Ltd."
 __copyright__ = "Copyright 2019-2025, QLM Network Entertainment Technology Co., Ltd."
-__version__ = "1.5.22"
+__version__ = "1.5.23"
 __license__ = "MIT"
 __email__ = "qlm@qlm.org.cn"
 __website__ = "https://team.qlm.org.cn"
@@ -532,6 +557,7 @@ class LanguageManager:
                 'audio_device': '音频设备',
                 'test_audio': '测试',
                 'enable_denoise': '音频降噪（去除背景底噪 / 电流声）',
+                'check_ffmpeg': '检查 FFmpeg',
                 'denoise_strength': '降噪强度：',
                 'denoise_off': '关闭（不做降噪）',
                 'denoise_light': '轻度',
@@ -593,6 +619,7 @@ class LanguageManager:
                 'audio_device': 'Audio Device',
                 'test_audio': 'Test',
                 'enable_denoise': 'Audio Denoise (remove background hiss / hum)',
+                'check_ffmpeg': 'Check FFmpeg',
                 'denoise_strength': 'Denoise strength:',
                 'denoise_off': 'Off (no denoise)',
                 'denoise_light': 'Light',
@@ -939,6 +966,10 @@ class ScreenRecorderApp(QMainWindow):
         self.audio_recorder = None
         self.audio_frames = []
         self.audio_enabled = False
+        # 音视频合并失败时的现场：真实原因 + 音频另存路径（不丢音频）
+        self._audio_merge_error = None
+        self._audio_sidecar = None
+        self._ffmpeg_cache = {}
         self.recording_thread = None
         self.temp_dir = tempfile.mkdtemp(prefix="screen_recorder_")
 
@@ -1340,6 +1371,21 @@ class ScreenRecorderApp(QMainWindow):
         behavior_layout.addWidget(self.tray_check)
         behavior_group.setLayout(behavior_layout)
         layout.addWidget(behavior_group)
+
+        # FFmpeg 自检：把「有画面无声音」的排查从盲猜变成一条可执行结论
+        ff_group = QGroupBox("FFmpeg（音视频合成 / 帧率校正）")
+        ff_layout = QVBoxLayout()
+        self.ffmpeg_status_label = QLabel(self.ffmpeg_status_short())
+        self.ffmpeg_status_label.setWordWrap(True)
+        ff_layout.addWidget(self.ffmpeg_status_label)
+        ff_row = QHBoxLayout()
+        self.ffmpeg_check_btn = QPushButton(self.language_manager.get_text('check_ffmpeg'))
+        self.ffmpeg_check_btn.clicked.connect(self.on_check_ffmpeg)
+        ff_row.addWidget(self.ffmpeg_check_btn)
+        ff_row.addStretch()
+        ff_layout.addLayout(ff_row)
+        ff_group.setLayout(ff_layout)
+        layout.addWidget(ff_group)
 
         layout.addStretch()
         self.tab_widget.addTab(advanced_widget, self.language_manager.get_text('advanced_settings'))
@@ -1903,6 +1949,8 @@ class ScreenRecorderApp(QMainWindow):
         self.paused = False
         self.frame_count = 0
         self.audio_frames = []
+        self._audio_merge_error = None
+        self._audio_sidecar = None
         self.recording_start_time = time.time()
         self.recording_active_seconds = 0.0
         self.last_active_tick = time.time()
@@ -2229,12 +2277,27 @@ class ScreenRecorderApp(QMainWindow):
                 "若视频无声音或时长不对，请重试或改用 MP4 格式。"
             )
         elif self.record_audio and self.audio_frames and not audio_merged:
-            QMessageBox.warning(
-                self, "有画面无声音",
-                f"视频已保存：\n{self.output_file}\n\n"
-                "但音频合成失败（未能调用 FFmpeg）。\n"
-                "请确认程序目录下的 ffmpeg 文件夹（含 ffmpeg.exe）存在后重试。"
-            )
+            # 区分「根本没找到 FFmpeg」和「FFmpeg 跑了但合并失败」，并给出可执行的下一步
+            reason = (self._audio_merge_error or "").strip()
+            if len(reason) > 400:
+                reason = reason[-400:]
+            sidecar = self._audio_sidecar
+            lines = [f"视频已保存：{self.output_file}", ""]
+            lines.append("但音频合成失败，这段视频暂时没有声音。")
+            if sidecar:
+                lines.append(f"✓ 音频已单独保存（不会丢）：\n{sidecar}")
+            lines.append("")
+            if self._find_ffmpeg():
+                lines.append("原因（FFmpeg 报错）：")
+                lines.append(reason if reason else "未知")
+            else:
+                expected = os.path.join(_app_dir(), "ffmpeg", "ffmpeg.exe" if os.name == "nt" else "ffmpeg")
+                lines.append("原因：未找到可用的 FFmpeg。")
+                lines.append(f"请把 ffmpeg 文件夹（含 ffmpeg.exe）放到：\n{expected}")
+                lines.append("或安装官方完整安装包（自带 FFmpeg）。")
+            lines.append("")
+            lines.append(f"详细日志：{_log_path()}")
+            QMessageBox.warning(self, "有画面无声音", "\n".join(lines))
         else:
             # 静默完成：不弹窗，只在窗口内状态栏 + 托盘提示（「合成视频不弹窗」）
             file_name = os.path.basename(self.output_file) if self.output_file else ""
@@ -2259,7 +2322,14 @@ class ScreenRecorderApp(QMainWindow):
         (_MEIPASS)，而不是程序所在目录，只按 __file__ 查找会漏掉随程序分发的
         <安装目录>\\ffmpeg\\ffmpeg.exe，导致音视频合并直接失败。这里按优先级
         枚举所有可能的落地点，并对候选做一次可执行性验证（避免命中损坏文件）。
+
+        找到的结果会缓存（一次录制只探测一次），候选清单同时记进
+        self.ffmpeg_candidates_tried，失败时用来说明「到底找过哪些地方」。
         """
+        cache = self.__dict__.setdefault("_ffmpeg_cache", {})
+        if name in cache:
+            return cache[name] or None
+
         exe_name = name + ".exe" if os.name == "nt" else name
         candidates = []
 
@@ -2267,13 +2337,7 @@ class ScreenRecorderApp(QMainWindow):
         if env_ffmpeg:
             candidates.append(env_ffmpeg)
 
-        # 1. 单文件 exe 的临时解包目录
-        mei = getattr(sys, "_MEIPASS", None)
-        if mei:
-            candidates += [os.path.join(mei, "ffmpeg", exe_name),
-                           os.path.join(mei, exe_name)]
-
-        # 2. 可执行文件所在目录（安装目录）、源码目录、当前工作目录
+        # 1. 可执行文件所在目录（安装目录）、源码目录、当前工作目录
         search_dirs = []
         for probe in (getattr(sys, "executable", None), sys.argv[0] if sys.argv else None):
             if probe:
@@ -2290,40 +2354,196 @@ class ScreenRecorderApp(QMainWindow):
         except Exception:
             pass
 
+        # 「安装包把 ffmpeg 放在安装目录」的各种可能布局都要覆盖：
+        # <base>\ffmpeg\ffmpeg.exe、<base>\ffmpeg\bin\ffmpeg.exe、<base>\ffmpeg.exe、
+        # <base>\bin\ffmpeg.exe、<base>\_internal\...
+        subdirs = ["ffmpeg", os.path.join("ffmpeg", "bin"), "", "bin",
+                   os.path.join("_internal", "ffmpeg"),
+                   os.path.join("_internal", "ffmpeg", "bin"),
+                   os.path.join("_internal", "bin"), "_internal"]
         for base in search_dirs:
             if not base:
                 continue
-            candidates += [
-                os.path.join(base, "ffmpeg", exe_name),
-                os.path.join(base, exe_name),
-                os.path.join(base, "_internal", "ffmpeg", exe_name),
-                os.path.join(base, "_internal", exe_name),
-            ]
+            for sub in subdirs:
+                candidates.append(os.path.join(base, sub, exe_name) if sub
+                                  else os.path.join(base, exe_name))
 
-        # 3. 常见安装位置
+        # 2b. 程序目录的「上一级」也看一眼（用户常把 exe 放在 ffmpeg 的子文件夹里）
+        for base in list(search_dirs):
+            if not base:
+                continue
+            parent = os.path.dirname(os.path.abspath(base))
+            if parent and parent != base:
+                candidates.append(os.path.join(parent, "ffmpeg", exe_name))
+                candidates.append(os.path.join(parent, exe_name))
+
+        # 1b. 单文件 exe 的内置副本（PyInstaller 解包到 _MEIPASS）：
+        # 放在外置目录之后 —— 用户想在 exe 旁边放一个自备的 ffmpeg 覆盖内置版本时，
+        # 外置的那个要优先被选中
+        mei = getattr(sys, "_MEIPASS", None)
+        if mei:
+            candidates += [os.path.join(mei, "ffmpeg", exe_name),
+                           os.path.join(mei, exe_name),
+                           os.path.join(mei, "bin", exe_name)]
+
+        # 3. 应用数据目录（用户手动丢进来的 ffmpeg）
+        try:
+            la = os.environ.get("LOCALAPPDATA")
+            if la:
+                for sub in ("SuperHiVision", "_MEI", ""):
+                    candidates.append(os.path.join(la, sub, "ffmpeg", exe_name) if sub
+                                      else os.path.join(la, exe_name))
+                candidates.append(os.path.join(la, "SuperHiVision", "ffmpeg", exe_name))
+        except Exception:
+            pass
+
+        # 4. 常见安装位置（含 winget / choco / scoop 默认落点）
         candidates += [
             r"C:\ffmpeg\bin\ffmpeg.exe",
+            r"C:\ffmpeg\ffmpeg.exe",
             r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
+            r"C:\Program Files (x86)\ffmpeg\bin\ffmpeg.exe",
             os.path.expanduser(r"~\ffmpeg\bin\ffmpeg.exe"),
+            os.path.expanduser(r"~\scoop\apps\ffmpeg\current\bin\ffmpeg.exe"),
+            r"C:\ProgramData\chocolatey\bin\ffmpeg.exe",
             "/usr/bin/ffmpeg",
             "/usr/local/bin/ffmpeg",
         ]
 
+        # 5. 注册表里 ffmpeg 自己登记的安装位置
+        if os.name == "nt":
+            try:
+                import winreg
+                for root, key in ((winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\ffmpeg"),
+                                  (winreg.HKEY_CURRENT_USER, r"SOFTWARE\ffmpeg")):
+                    try:
+                        with winreg.OpenKey(root, key) as k:
+                            path, _ = winreg.QueryValueEx(k, "Path")
+                            for leaf in (os.path.join(path, "bin", exe_name),
+                                         os.path.join(path, exe_name)):
+                                candidates.append(leaf)
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+
         seen = set()
+        tried = []
         for path in candidates:
             if not path or path in seen:
                 continue
             seen.add(path)
+            tried.append(path)
             if os.path.isfile(path) and self._probe_ffmpeg(path):
+                self.ffmpeg_candidates_tried = tried
+                self._ffmpeg_cache[name] = path
+                print(f"✅ FFmpeg 已定位: {path}")
                 return path
 
-        # 4. 系统 PATH（最后兜底）
-        ffmpeg_in_path = shutil.which(name)
-        if ffmpeg_in_path and self._probe_ffmpeg(ffmpeg_in_path):
-            return ffmpeg_in_path
-        if self._probe_ffmpeg(name):
-            return name
+        # 6. 系统 PATH（最后兜底）
+        for extra in (shutil.which(name), name):
+            if extra and extra not in seen:
+                seen.add(extra)
+                tried.append(extra)
+                if self._probe_ffmpeg(extra):
+                    self.ffmpeg_candidates_tried = tried
+                    self._ffmpeg_cache[name] = extra
+                    print(f"✅ FFmpeg 已定位(PATH): {extra}")
+                    return extra
 
+        self.ffmpeg_candidates_tried = tried
+        self._ffmpeg_cache[name] = ""
+        print(f"⚠️ 未找到可用的 FFmpeg（已尝试 {len(tried)} 个位置）")
+        log_diagnostic("未找到可用的 FFmpeg，已尝试以下位置：" + chr(10) + chr(10).join("  " + t for t in tried))
+        return None
+
+    def ffmpeg_status_text(self):
+        """给用户看的 FFmpeg 定位结果说明（失败时告诉他到底该把文件放哪）"""
+        path = self._find_ffmpeg()
+        if path:
+            return f"FFmpeg 已就绪：{path}"
+        expected = os.path.join(_app_dir(), "ffmpeg", "ffmpeg.exe" if os.name == "nt" else "ffmpeg")
+        return ("未找到可用的 FFmpeg。\n"
+                f"请把 ffmpeg 文件夹（含 ffmpeg.exe）放到：\n{expected}\n"
+                f"或安装完整安装包（自带 FFmpeg）。\n详细日志：{_log_path()}")
+
+    def ffmpeg_status_short(self):
+        """一行式状态，用于设置在页面上常驻显示"""
+        path = self._find_ffmpeg()
+        if path:
+            return f"✅ {path}"
+        return ("❌ 未找到 FFmpeg —— 保存的视频会没有声音。\n"
+                f"请把 ffmpeg 文件夹放到程序目录：{os.path.join(_app_dir(), 'ffmpeg')}")
+
+    def on_check_ffmpeg(self):
+        """「检查 FFmpeg」按钮：重新探测（清缓存）并给出结论"""
+        self._ffmpeg_cache = {}
+        text = self.ffmpeg_status_text()
+        try:
+            self.ffmpeg_status_label.setText(text.splitlines()[0])
+        except Exception:
+            pass
+        print(f"🔎 FFmpeg 自检:\n{text}")
+        QMessageBox.information(self, self.language_manager.get_text('check_ffmpeg'), text)
+
+    def _write_temp_audio_wav(self):
+        """把录制到的 PCM 帧写成一个 WAV。返回 (路径, 采样率, 声道数)，失败返回 None。
+
+        单独抽出来是为了「FFmpeg 缺失 / 合并失败」时也能立刻把音频落地，
+        不让用户录了半天的声音凭空消失。
+        """
+        try:
+            if not self.audio_frames:
+                return None
+            temp_audio_file = os.path.join(self.temp_dir, "temp_audio.wav")
+            if self.audio_recorder is not None:
+                channels = getattr(self.audio_recorder, 'actual_channels', 1) or 1
+                sample_rate = getattr(self.audio_recorder, 'actual_sample_rate', 44100) or 44100
+            else:
+                channels = 1
+                sample_rate = 44100
+
+            # 自动增益放大（解决音量过低），再交由 FFmpeg loudnorm 归一化到标准响度
+            audio_data = _boost_audio_gain(b''.join(self.audio_frames))
+            with wave.open(temp_audio_file, 'wb') as wf:
+                wf.setnchannels(channels)
+                wf.setsampwidth(2)  # 16 位 PCM
+                wf.setframerate(sample_rate)
+                wf.writeframes(audio_data)
+
+            if not os.path.exists(temp_audio_file) or os.path.getsize(temp_audio_file) == 0:
+                return None
+            return temp_audio_file, sample_rate, channels
+        except Exception as e:
+            print(f"❌ 写音频文件失败: {e}")
+            log_diagnostic(f"写音频文件失败: {type(e).__name__}: {e}")
+            return None
+
+    def _salvage_audio(self, temp_audio_file):
+        """合并失败时把音频另存为 <视频名>.audio.wav，尽量放在视频旁边。
+
+        临时目录一般在 C:，而用户输出目录可能在 F:/D: —— 跨盘 os.replace 会抛
+        WinError 17，所以用 shutil.move（自动退化成复制+删除）。输出目录不可写时
+        退回用户主目录，总之不删源文件。
+        """
+        sidecar = os.path.splitext(self.output_file)[0] + ".audio.wav"
+        saved = None
+        for target in (sidecar, os.path.join(os.path.expanduser("~"), os.path.basename(sidecar))):
+            try:
+                if os.path.exists(target):
+                    os.remove(target)
+                shutil.move(temp_audio_file, target)
+                saved = target
+                break
+            except Exception as e:
+                print(f"⚠️ 音频另存到 {target} 失败: {e}")
+        if saved:
+            self._audio_sidecar = saved
+            print(f"🔊 合并失败，音频已单独保存: {saved}")
+            log_diagnostic("音频已单独保存到: " + saved)
+            return saved
+        print(f"⚠️ 音频未能另存，保留在临时目录: {temp_audio_file}")
+        log_diagnostic("音频未能另存，保留在临时目录: " + temp_audio_file)
         return None
 
     @staticmethod
@@ -2437,36 +2657,22 @@ class ScreenRecorderApp(QMainWindow):
             print("⚠️ 音频帧为空或输出文件不存在，跳过音视频合并")
             return False
 
+        # 先把 PCM 帧落成 WAV：即使 FFmpeg 缺失或合并失败，录到的音频也绝不丢
+        prepared = self._write_temp_audio_wav()
+        if not prepared:
+            print("❌ 音频文件创建失败或为空，跳过音视频合并")
+            return False
+        temp_audio_file, sample_rate, channels = prepared
+
         ffmpeg_cmd_exe = self._find_ffmpeg()
         if not ffmpeg_cmd_exe:
-            print("⚠️ FFmpeg不可用，跳过音视频合并")
+            print("⚠️ FFmpeg不可用，跳过音视频合并（音频会单独保存）")
+            self._audio_merge_error = "未找到可用的 FFmpeg"
+            log_diagnostic("未找到 FFmpeg，无法合成音视频；音频将另存")
+            self._salvage_audio(temp_audio_file)
             return False
 
         try:
-            temp_audio_file = os.path.join(self.temp_dir, "temp_audio.wav")
-
-            # 使用音频线程实际使用的采样率与声道数
-            if self.audio_recorder is not None:
-                channels = getattr(self.audio_recorder, 'actual_channels', 1) or 1
-                sample_rate = getattr(self.audio_recorder, 'actual_sample_rate', 44100) or 44100
-            else:
-                channels = 1
-                sample_rate = 44100
-
-            # 自动增益放大（解决音量过低），再交由 FFmpeg loudnorm 归一化到标准响度
-            audio_data = _boost_audio_gain(b''.join(self.audio_frames))
-
-            # 保存音频到 WAV 文件
-            with wave.open(temp_audio_file, 'wb') as wf:
-                wf.setnchannels(channels)
-                wf.setsampwidth(2)  # 16 位 PCM
-                wf.setframerate(sample_rate)
-                wf.writeframes(audio_data)
-
-            if not os.path.exists(temp_audio_file) or os.path.getsize(temp_audio_file) == 0:
-                print("❌ 音频文件创建失败或为空，跳过音视频合并")
-                return False
-
             print(f"🔊 音频文件已创建: {os.path.getsize(temp_audio_file)} bytes")
 
             base_name = os.path.splitext(self.output_file)[0]
@@ -2527,6 +2733,7 @@ class ScreenRecorderApp(QMainWindow):
             if merged:
                 os.remove(self.output_file)
                 os.rename(temp_output, self.output_file)
+                self._audio_merge_error = None
                 print(f"✅ 音视频合并完成: {self.output_file}")
             else:
                 print(f"❌ 音视频合并失败: {last_err}")
@@ -2535,17 +2742,33 @@ class ScreenRecorderApp(QMainWindow):
                         os.remove(temp_output)
                     except Exception:
                         pass
+                # 合并失败也绝不丢音频：把 WAV 落到视频旁边，用户装上 FFmpeg 后可再合成
+                self._audio_merge_error = (last_err or "").strip() or "FFmpeg 返回错误"
+                log_diagnostic(
+                    "音视频合并失败，FFmpeg=" + str(ffmpeg_cmd_exe) +
+                    chr(10) + "输出: " + str(self.output_file) +
+                    chr(10) + "FFmpeg 错误尾部:" + chr(10) + self._audio_merge_error
+                )
+                saved = self._salvage_audio(temp_audio_file)
+                temp_audio_kept = bool(saved)
 
-            # 清理临时音频文件
-            try:
-                os.remove(temp_audio_file)
-            except Exception:
-                pass
+            # 清理临时音频文件：仅在「合并成功」或「已另存成功」后删，
+            # 否则保留现场（宁可留下临时 WAV，也不能丢用户的录音）
+            if merged or locals().get('temp_audio_kept', False):
+                try:
+                    if os.path.exists(temp_audio_file):
+                        os.remove(temp_audio_file)
+                except Exception:
+                    pass
+            else:
+                print(f"⚠️ 音频保留在临时目录: {temp_audio_file}")
 
             return merged
 
         except Exception as e:
             print(f"❌ 音视频合并错误: {e}")
+            self._audio_merge_error = str(e)
+            log_diagnostic(f"音视频合并异常: {type(e).__name__}: {e}")
             return False
 
     def take_screenshot(self):
