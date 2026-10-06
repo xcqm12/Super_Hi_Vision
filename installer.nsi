@@ -16,7 +16,7 @@
 !define HELPURL "https://team.qlm.org.cn"
 !define UPDATEURL "https://team.qlm.org.cn"
 !define ABOUTURL "https://team.qlm.org.cn"
-!define INSTALLSIZE 540000
+!define INSTALLSIZE 229000
 !define EXEFILE "SuperHiVision_v1.5.23.exe"
 !define LAUNCHERVBS "SuperHiVision_Launcher.vbs"
 
