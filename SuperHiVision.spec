@@ -8,14 +8,20 @@ block_cipher = None
 # <exe目录>\ffmpeg → _MEIPASS\ffmpeg 的顺序查找。
 # 这样「绿色版」exe 单独拷到任何地方都能合成音频，不再出现「有画面无声音」。
 # 只带 ffmpeg.exe + ffprobe.exe（合成/探测用得上），不带 ffplay（无人调用，省 ~150MB）。
+# 注意：这里的输出一律用 ASCII。GitHub Windows runner 的控制台代码页是 cp1252，
+# 打印中文会抛 UnicodeEncodeError 让 PyInstaller 直接秒退（日志里只有 banner，没有 traceback）。
 _datas = [('icon.ico', '.')]
+_missing = []
 for _f in ('ffmpeg.exe', 'ffprobe.exe'):
     _p = os.path.join('ffmpeg', _f)
     if os.path.exists(_p):
         _datas.append((_p, 'ffmpeg'))
-        print(f'[spec] 打包内置 FFmpeg: {_p}')
+        print(f'[spec] bundle FFmpeg: {_p}')
     else:
-        print(f'[spec] 警告: 未找到 {_p}，将不带内置 FFmpeg（音视频合成可能失败）')
+        _missing.append(_p)
+        print(f'[spec] WARNING: not found {_p} - built without bundled FFmpeg')
+if _missing and os.environ.get('SHV_REQUIRE_FFMPEG') == '1':
+    raise SystemExit('[spec] ERROR: bundled FFmpeg missing: %s' % _missing)
 
 a = Analysis(
     ['Super_Hi_Vision_PyQt.py'],

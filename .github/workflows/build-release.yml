@@ -12,6 +12,13 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      # GitHub Windows runner 的控制台代码页是 cp1252，PyInstaller 打印含中文的日志行
+      # （版本资源里的 ProductName 等）会抛 UnicodeEncodeError 秒退，必须强制 UTF-8
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: '1'
+      # 打包时必须带上内置 FFmpeg，缺了就让构建失败（别发出没声音的 exe）
+      SHV_REQUIRE_FFMPEG: '1'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
