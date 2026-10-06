@@ -46,7 +46,17 @@ jobs:
       - name: Build EXE with PyInstaller
         shell: pwsh
         run: |
-          python -m PyInstaller --clean --noconfirm SuperHiVision.spec
+          python -m PyInstaller --clean --noconfirm SuperHiVision.spec 2>&1 | Tee-Object -FilePath pyi.log
+          if ($LASTEXITCODE -ne 0) {
+            $tail = (Get-Content pyi.log -Tail 40) -join "`n"
+            Write-Output "::error title=PyInstaller 构建失败::$tail"
+            exit 1
+          }
+          if (-not (Test-Path "dist\SuperHiVision_v1.5.23.exe")) {
+            $tail = (Get-Content pyi.log -Tail 40) -join "`n"
+            Write-Output "::error title=未产出中的 exe::$tail"
+            exit 1
+          }
 
       - name: Install NSIS
         shell: pwsh
