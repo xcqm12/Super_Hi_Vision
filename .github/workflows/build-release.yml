@@ -43,18 +43,27 @@ jobs:
           if ($missing) { Write-Error "缺少 FFmpeg 文件: $missing"; exit 1 }
           Get-ChildItem ffmpeg | Select-Object Name, Length
 
+      - name: 预检：依赖可导入
+        shell: pwsh
+        run: |
+          python tools\ci_preflight.py
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
       - name: Build EXE with PyInstaller
         shell: pwsh
         run: |
           python -m PyInstaller --clean --noconfirm SuperHiVision.spec 2>&1 | Tee-Object -FilePath pyi.log
           if ($LASTEXITCODE -ne 0) {
-            $tail = (Get-Content pyi.log -Tail 40) -join "`n"
-            Write-Output "::error title=PyInstaller 构建失败::$tail"
+            $lines = @(Get-Content pyi.log)
+            $hit = ($lines | Select-String -Pattern 'Traceback|ERROR:|Fatal|error:' | Select-Object -Last 1)
+            if ($hit) { $start = [Math]::Max(0, $hit.LineNumber - 1) }
+            else { $start = [Math]::Max(0, $lines.Count - 10) }
+            $sel = $lines[$start..([Math]::Min($start + 9, $lines.Count - 1))]
+            foreach ($l in $sel) { Write-Output ("::error title=PyI::{0}" -f $l) }
             exit 1
           }
           if (-not (Test-Path "dist\SuperHiVision_v1.5.23.exe")) {
-            $tail = (Get-Content pyi.log -Tail 40) -join "`n"
-            Write-Output "::error title=未产出中的 exe::$tail"
+            Write-Output "::error title=PyI::未产出 dist\SuperHiVision_v1.5.23.exe"
             exit 1
           }
 
