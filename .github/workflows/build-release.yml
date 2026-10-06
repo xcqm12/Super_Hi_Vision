@@ -25,7 +25,8 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller PyQt5 opencv-python pillow numpy pyaudio pynput
+          # PyInstaller 钉 6.22.2：6.22.3 在 PyQt5 钩子阶段会硬崩（无 traceback），本地/CI 均可复现
+          pip install "pyinstaller==6.22.2" PyQt5 opencv-python pillow numpy pyaudio pynput
 
       - name: Download FFmpeg (win64 static)
         shell: pwsh
