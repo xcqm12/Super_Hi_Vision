@@ -82,7 +82,7 @@ jobs:
             ### 🆕 本次更新（v1.5.23）
             - 📦 **FFmpeg 内置进单文件 exe**：绿色版拷到任意目录都能合成音频，不再出现「有画面无声音」（不再分发 ffplay，省约 150MB）
             - 🐛 **修复「有画面无声音」**：根因是绿色版 exe 不带 FFmpeg，单独拷到别处后音视频合成失败；旧提示既没说清该放哪，也没保住录到的音频
-            - 🔎 **查找范围加宽**：外置 ffmpeg\ → 内置 → bin\ → 上一级 → %LOCALAPPDATA% → C:fmpegin / scoop / choco → 注册表 → PATH；结果缓存
+            - 🔎 **查找范围加宽**：外置 ffmpeg\ → 内置 → bin\ → 上一级 → %LOCALAPPDATA% → C:\\ffmpeg\\bin / scoop / choco → 注册表 → PATH；结果缓存
             - 🔊 **失败也不丢音频**：合并失败时把 WAV 另存为 `xxx.audio.wav` 并给出路径
             - 🧾 **原因明确**：区分「未找到 FFmpeg」（给出确切该放的路径）与「FFmpeg 报错」（附错误尾部），现场写入 error.log
             - ✅ **新增「检查 FFmpeg」自检**：高级设置页常驻状态 + 一键重新探测
