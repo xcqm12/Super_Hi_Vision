@@ -9,6 +9,13 @@
 - **顺手兼容**：① `FFMPEG.EXE` / `Ffmpeg.Exe` 等各种大小写写法；② 用户解压后自行改名成 `ffmpeg-n7.1-essentials.exe` 这类变体（同目录内按「小写 `ffmpeg` 开头 + `.exe` 结尾」宽容匹配）；③ 不再把同目录的 `ffplay.exe` 误当成 `ffmpeg`
 - **回归测试**：新增 `tools/verify_ffmpeg_case.py` —— 用 AST 从 `Super_Hi_Vision_PyQt.py` 里取出真实方法本体执行（不是副本，避免假绿灯），覆盖 8 个用例（大写/全大写/混合/正常小写/改名变体/缺失/无关 exe/0 字节坏文件）：8/8 通过
 
+### 新增：代码签名与「发行者」信息（SevenZeroMeowTeam）
+- **exe / 安装包的发行者固定为 `SevenZeroMeowTeam`**：`SuperHiVision.spec` 动态生成版本资源（版本号从 `__version__` 读取，不再两处维护），`installer.nsi` 补上 `VIProductVersion` + `VIAddVersionKey`。这部分**不需要证书**，重新打包即生效
+- **自签名代码签名流程**：新增 `tools/create_signing_cert.ps1`（生成 `CN=SevenZeroMeowTeam` 代码签名证书并登记为本机受信任发行者）与 `tools/sign_binaries.ps1`（签名工具，签名前自动留 `.unsigned` 备份、带 RFC3161 时间戳、失败可不带时间戳重试）
+- **CI 可选自动签名**：仓库配置 `SIGNING_PFX_BASE64` / `SIGNING_PFX_PASSWORD` 两个 secrets 后，推 tag 时自动签名绿色版与安装包；**未配置则自动跳过，不影响出包**
+- **关键限制已写进文档** `docs/CODE_SIGNING.md`：自签名证书只让**装了这张证书的机器**不再提示「未知发布者」；要让所有下载者都不看到警告，必须使用商业 CA 证书（届时只需换证书，代码无需改动）
+- **构建期校验**：新增 `tools/check_version_resource.py`，按 PyInstaller 的加载方式校验版本资源；spec 内部也加了自校验，资源异常时降级为「不带版本资源构建」，而不是让 CI 整体失败
+
 ## Version 1.5.23 (2026-10-06)
 
 ### 修复：保存后「有画面无声音」
