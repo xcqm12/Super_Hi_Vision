@@ -4,6 +4,84 @@ import os
 
 block_cipher = None
 
+# ---- Version resource: what Windows shows in the exe Properties -------------
+# Without this the "Company" field is empty and the UAC prompt shows no
+# publisher name at all. The version is read from the main script, so it never
+# has to be maintained in two places. ASCII only: the CI console is cp1252 and
+# printing non-ASCII from a spec makes PyInstaller abort (see the note below).
+# Self-contained imports on purpose (the spec imports os/sys above as well).
+import os as _os
+import re as _re
+import tempfile as _tempfile
+
+
+def _read_app_version():
+    try:
+        with open('Super_Hi_Vision_PyQt.py', encoding='utf-8') as _f:
+            _m = _re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', _f.read(), _re.M)
+            if _m:
+                return _m.group(1)
+    except Exception:
+        pass
+    return '0.0.0'
+
+
+APP_NAME = 'Super Hi Vision'
+APP_PUBLISHER = 'SevenZeroMeowTeam'      # publisher name shown by Windows
+APP_VERSION = _read_app_version()
+_vnum = [int(x) for x in (_re.findall(r'\d+', APP_VERSION) + ['0', '0', '0', '0'])[:4]]
+
+VERSION_FILE = None
+try:
+    _vi = (
+        'VSVersionInfo(\n'
+        '  ffi=FixedFileInfo(\n'
+        '    filevers=(%d, %d, %d, %d),\n'
+        '    prodvers=(%d, %d, %d, %d),\n'
+        '    mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)\n'
+        '  ),\n'
+        '  kids=[\n'
+        '    StringFileInfo([\n'
+        "      StringTable(u'080404B0', [\n"
+        "        StringStruct(u'CompanyName', u'%s'),\n"
+        "        StringStruct(u'FileDescription', u'%s - Advanced HD Screen Recorder'),\n"
+        "        StringStruct(u'FileVersion', u'%s'),\n"
+        "        StringStruct(u'InternalName', u'SuperHiVision'),\n"
+        "        StringStruct(u'LegalCopyright', u'Copyright (C) 2019-2025 QLM Network Entertainment Technology Co., Ltd.'),\n"
+        "        StringStruct(u'OriginalFilename', u'SuperHiVision_v%s.exe'),\n"
+        "        StringStruct(u'ProductName', u'%s'),\n"
+        "        StringStruct(u'ProductVersion', u'%s')\n"
+        '      ])\n'
+        '    ]),\n'
+        "    VarFileInfo([VarStruct(u'Translation', [2052, 1200])])\n"
+        '  ]\n'
+        ')\n'
+    ) % (_vnum[0], _vnum[1], _vnum[2], _vnum[3],
+         _vnum[0], _vnum[1], _vnum[2], _vnum[3],
+         APP_PUBLISHER, APP_NAME, APP_VERSION, APP_VERSION, APP_NAME, APP_VERSION)
+    VERSION_FILE = _os.path.join(_tempfile.gettempdir(), 'shv_version_info.txt')
+    with open(VERSION_FILE, 'w', encoding='utf-8') as _f:
+        _f.write(_vi)
+
+    # Self-check before handing it to PyInstaller: exec it with stub classes so
+    # a malformed structure is caught HERE (and we just build without a version
+    # resource) instead of aborting the whole PyInstaller run. PyInstaller
+    # injects VSVersionInfo/StringStruct/... into the namespace when it loads
+    # the file, so stubs are enough to prove the structure parses.
+    _Stub = type('_Stub', (object,), {'__init__': lambda self, *a, **k: None})
+    _probe = dict((_n, _Stub) for _n in (
+        'VSVersionInfo', 'FixedFileInfo', 'StringFileInfo', 'StringTable',
+        'StringStruct', 'VarFileInfo', 'VarStruct'))
+    exec(compile(_vi, 'shv_version_probe', 'exec'), _probe)
+
+    print('[spec] version resource: publisher=%s version=%s (self-check ok)'
+          % (APP_PUBLISHER, APP_VERSION))
+except Exception as _e:
+    VERSION_FILE = None
+    print('[spec] WARNING: version resource skipped (%s)' % _e)
+
+EXE_NAME = 'SuperHiVision_v%s' % APP_VERSION
+
 # FFmpeg 随包分发：单文件 exe 解包到 _MEIPASS\ffmpeg\，程序启动时按
 # <exe目录>\ffmpeg → _MEIPASS\ffmpeg 的顺序查找。
 # 这样「绿色版」exe 单独拷到任何地方都能合成音频，不再出现「有画面无声音」。
@@ -54,7 +132,8 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='SuperHiVision_v1.5.24',
+    name=EXE_NAME,
+    version=VERSION_FILE,
     icon='icon.ico',
     debug=False,
     bootloader_ignore_signals=False,
