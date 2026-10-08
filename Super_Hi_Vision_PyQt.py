@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Super Hi Vision - 高级超高清屏幕录制工具 (PyQt5现代化版本)
-版本: 1.5.23
+版本: 1.5.24
 使用PyQt5构建现代化界面，保持原有录制逻辑不变
 支持中英文语言切换
 支持多主题切换
@@ -90,7 +90,7 @@ ERROR_LOG_PATH = None
 
 
 def _resolve_error_log_path():
-    """定位可写的错误日志路径（程序目录不可写时退回 %LOCALAPPDATA%\\SuperHiVision）"""
+    """定位可写的错误日志路径（程序目录不可写时退回 %LOCALAPPDATA%\SuperHiVision）"""
     log_path = os.path.join(_app_dir(), "SuperHiVision_error.log")
     if not _dir_writable(_app_dir()):
         candidates = []
@@ -244,7 +244,7 @@ if not check_and_install_pyqt5():
         "程序无法启动，PyQt5 依赖不可用！\n\n"
         "请确保已安装 Python 和 pip，然后运行：\n"
         "    pip install PyQt5\n\n"
-        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.23.exe）。"
+        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.24.exe）。"
     )
     sys.exit(1)
 
@@ -289,7 +289,7 @@ except Exception:
 # ==================== 版本和版权信息 ====================
 __author__ = "QLM Network Entertainment Technology Co., Ltd."
 __copyright__ = "Copyright 2019-2025, QLM Network Entertainment Technology Co., Ltd."
-__version__ = "1.5.23"
+__version__ = "1.5.24"
 __license__ = "MIT"
 __email__ = "qlm@qlm.org.cn"
 __website__ = "https://team.qlm.org.cn"
@@ -2315,6 +2315,82 @@ class ScreenRecorderApp(QMainWindow):
         """音频录制错误处理"""
         print(f"❌ 音频录制错误: {message}")
 
+    @staticmethod
+    def _match_exe_in_dir(directory, exe_name):
+        """在一个目录里判断 exe_name（忽略大小写）是否存在，存在则返回规范化路径。
+
+        Windows 上文件名不区分大小写，用户（或某些下载/解压工具）磁盘上的文件可能叫
+        ffmpeg.EXE、FFMPEG.EXE、Ffmpeg.Exe，而这里构造的候选路径固定写小写 ffmpeg.exe。
+        `os.path.isfile()` 照样为真，但 `os.scandir` 拿到的 `entry.name` 保留磁盘上的
+        原始拼写 —— 直接用它，界面就会显示 `...\\ffmpeg\\ffmpeg.EXE`，子进程命令行里
+        也是这串大写拼写，换台机器显示还不一样。
+
+        因此这里只把目录项当作「存在性证据」，返回的路径一律用 `exe_name` 的规范拼写
+        拼出来，让显示与调用都稳定成小写。只在同一目录内比较，不递归。
+        """
+        want = exe_name.lower()
+        try:
+            entries = list(os.scandir(directory))
+        except OSError:
+            return None
+        for entry in entries:
+            try:
+                if entry.is_file() and entry.name.lower() == want:
+                    return os.path.join(directory, exe_name)
+            except OSError:
+                continue
+        return None
+
+    @classmethod
+    def _canonical_exe(cls, path, exe_name):
+        """把候选路径换成磁盘上的真实文件名。
+
+        精确同名（仅大小写不同）优先；同目录下查无此名时，再宽容匹配
+        「小写 exe_name 前缀 + .exe 后缀」的变体（用户解压后自行改名的情形），
+        变体按文件名排序取第一个。找不到返回 None。
+        """
+        if not path:
+            return None
+        directory = os.path.dirname(path)
+        real = cls._match_exe_in_dir(directory, exe_name)
+        if real:
+            return real
+        if os.name != "nt":
+            return None
+        stem = os.path.splitext(exe_name)[0].lower()
+        if not stem:
+            return None
+        try:
+            entries = sorted(os.scandir(directory), key=lambda e: e.name)
+        except OSError:
+            return None
+        for entry in entries:
+            try:
+                if entry.is_file():
+                    low = entry.name.lower()
+                    if low.startswith(stem) and low.endswith(".exe"):
+                        return entry.path
+            except OSError:
+                continue
+        return None
+
+    @classmethod
+    def _resolve_exe(cls, path, exe_name):
+        """把「候选路径 / 裸命令名」解析成可交给子进程的规范路径。
+
+        先按同名文件归一化（磁盘上是大写拼写也统一成规范小写），再退回 shutil.which；
+        一路都拿不到时返回 None，因此可以用 `if not real` 判断「这个名字确实不存在」。
+        """
+        if not path:
+            return None
+        real = cls._canonical_exe(path, exe_name)
+        if real:
+            return real
+        found = shutil.which(path)
+        if not found:
+            return None
+        return cls._canonical_exe(found, exe_name) or found
+
     def _find_ffmpeg(self, name='ffmpeg'):
         """查找FFmpeg可执行文件
 
@@ -2427,29 +2503,49 @@ class ScreenRecorderApp(QMainWindow):
             except Exception:
                 pass
 
+        def use(path, via_path=False):
+            """记下探测成功的位置并缓存，返回给调用方"""
+            self.ffmpeg_candidates_tried = tried
+            self._ffmpeg_cache[name] = path
+            print(f"✅ FFmpeg 已定位{'（PATH）' if via_path else ''}: {path}")
+            return path
+
         seen = set()
         tried = []
         for path in candidates:
             if not path or path in seen:
                 continue
             seen.add(path)
-            tried.append(path)
-            if os.path.isfile(path) and self._probe_ffmpeg(path):
-                self.ffmpeg_candidates_tried = tried
-                self._ffmpeg_cache[name] = path
-                print(f"✅ FFmpeg 已定位: {path}")
-                return path
+
+            # 按磁盘上的真实拼写取出文件名（ffmpeg.EXE → ffmpeg.exe），
+            # 顺带容忍同目录下用户改过名的变体；两者都没有才算未命中
+            real = self._canonical_exe(path, exe_name)
+            if not real:
+                tried.append(path)
+                continue
+            if real not in seen:
+                seen.add(real)
+            tried.append(real)
+            if not os.path.isfile(real):
+                # 磁盘上确实没有这个名字（_canonical_exe 也可能返回目录内的
+                # 改名变体，那种情况 isfile 为真，不走这里）
+                continue
+            if self._probe_ffmpeg(real):
+                return use(real)
 
         # 6. 系统 PATH（最后兜底）
         for extra in (shutil.which(name), name):
-            if extra and extra not in seen:
-                seen.add(extra)
-                tried.append(extra)
-                if self._probe_ffmpeg(extra):
-                    self.ffmpeg_candidates_tried = tried
-                    self._ffmpeg_cache[name] = extra
-                    print(f"✅ FFmpeg 已定位(PATH): {extra}")
-                    return extra
+            if not extra:
+                continue
+            # PATH 命中的可能是裸命令名，也可能已经在当前目录里解析成大写拼写，
+            # 统一过一遍「真实文件名」再交给子进程，保证界面与命令行都稳定
+            real = self._resolve_exe(extra, exe_name)
+            if not real or real in seen:
+                continue
+            seen.add(real)
+            tried.append(real)
+            if os.path.isfile(real) and self._probe_ffmpeg(real):
+                return use(real, via_path=True)
 
         self.ffmpeg_candidates_tried = tried
         self._ffmpeg_cache[name] = ""
