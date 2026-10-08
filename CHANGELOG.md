@@ -1,5 +1,17 @@
 # Super Hi Vision Changelog
 
+## Version 1.5.25 (2026-10-09)
+
+**正式发行包**：把 1.5.24 的修复与代码签名一起打包发布（1.5.24 未单独发版，其内容并入本版）。
+
+### 本次新增
+- **CI 去掉版本号硬编码**：workflow 里 11 处 `SuperHiVision_v<版本>.exe` 改为通配符查找 / `${{ github.ref_name }}`，以后再升版不必逐个修改（漏改会让 CI 在「检查产物」那步直接失败）
+- **重新打包并正式签名**：exe / 安装包的属性与 UAC 提示里，发行者显示为 `SevenZeroMeowTeam`
+
+### 包含 1.5.24 的内容（详见下一节）
+- FFmpeg 定位路径的**大小写归一化**（磁盘上是 `ffmpeg.EXE` 也统一显示/调用为小写 `ffmpeg.exe`）
+- 代码签名流程（`tools/create_signing_cert.ps1` + `tools/sign_binaries.ps1`）、发行者版本资源（spec + installer.nsi）、说明文档 `docs/CODE_SIGNING.md`
+
 ## Version 1.5.24 (2026-10-08)
 
 ### 修复：定位到的 FFmpeg 路径显示成大写后缀（`ffmpeg.EXE`）
@@ -335,4 +347,4 @@ Super Hi Vision is a professional HD screen recording tool featuring:
 
 **Copyright**: Copyright 2019-2025 QLM Network Entertainment Technology Co., Ltd.
 **Website**: https://team.qlm.org.cn
-**Version**: 1.5.24
+**Version**: 1.5.25
