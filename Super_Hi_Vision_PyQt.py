@@ -90,7 +90,7 @@ ERROR_LOG_PATH = None
 
 
 def _resolve_error_log_path():
-    """定位可写的错误日志路径（程序目录不可写时退回 %LOCALAPPDATA%\SuperHiVision）"""
+    """定位可写的错误日志路径（程序目录不可写时退回 %LOCALAPPDATA%\\SuperHiVision）"""
     log_path = os.path.join(_app_dir(), "SuperHiVision_error.log")
     if not _dir_writable(_app_dir()):
         candidates = []
