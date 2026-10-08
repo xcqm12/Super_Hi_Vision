@@ -1,5 +1,14 @@
 # Super Hi Vision Changelog
 
+## Version 1.5.24 (2026-10-08)
+
+### 修复：定位到的 FFmpeg 路径显示成大写后缀（`ffmpeg.EXE`）
+- **现象**：高级设置页的 FFmpeg 状态常驻显示 `FFmpeg 已就绪：C:\...\ffmpeg\ffmpeg.EXE`，后缀是大写
+- **根因**：程序构造的候选路径写的是小写 `<目录>\ffmpeg\ffmpeg.exe`。Windows 文件名不区分大小写，`os.path.isfile()` 照样命中磁盘上的 `ffmpeg.EXE`，但**返回给界面的字符串保留了磁盘上的原始拼写**，于是状态栏回显成 `.EXE`，下发给子进程的命令行也带着这串大写拼写。磁盘上文件名恰好是小写时看不出问题，所以只在「下载/解压工具把文件名写成大写」的机器上暴露
+- **修法**：新增三个助手把「路径拼写」统一收敛——`_match_exe_in_dir()` 只把目录项当作「存在性证据」，命中后一律用规范拼写 `ffmpeg.exe` 回填路径；`_canonical_exe()` / `_resolve_exe()` 统一处理所有来源（候选目录、`sys._MEIPASS`、`%LOCALAPPDATA%`、注册表、系统 `PATH`），显示与调用都稳定成小写
+- **顺手兼容**：① `FFMPEG.EXE` / `Ffmpeg.Exe` 等各种大小写写法；② 用户解压后自行改名成 `ffmpeg-n7.1-essentials.exe` 这类变体（同目录内按「小写 `ffmpeg` 开头 + `.exe` 结尾」宽容匹配）；③ 不再把同目录的 `ffplay.exe` 误当成 `ffmpeg`
+- **回归测试**：新增 `tools/verify_ffmpeg_case.py` —— 用 AST 从 `Super_Hi_Vision_PyQt.py` 里取出真实方法本体执行（不是副本，避免假绿灯），覆盖 8 个用例（大写/全大写/混合/正常小写/改名变体/缺失/无关 exe/0 字节坏文件）：8/8 通过
+
 ## Version 1.5.23 (2026-10-06)
 
 ### 修复：保存后「有画面无声音」
@@ -319,4 +328,4 @@ Super Hi Vision is a professional HD screen recording tool featuring:
 
 **Copyright**: Copyright 2019-2025 QLM Network Entertainment Technology Co., Ltd.
 **Website**: https://team.qlm.org.cn
-**Version**: 1.5.21
+**Version**: 1.5.24

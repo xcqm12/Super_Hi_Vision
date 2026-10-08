@@ -5,7 +5,7 @@
 ## 📋 功能特点
 
 - **多种录制模式**
-  - 全屏录制：录制整个屏幕
+  - 全屏录制：录制整个显示器屏幕
   - 自定义区域：指定录制区域大小
   - 跟随鼠标：录制鼠标周围区域
 
@@ -41,7 +41,16 @@
 - **多主题支持**
   - 6种精美主题（深色/浅色/海洋/日落/森林/紫色）
 
-## 🩹 最新更新（v1.5.23）
+## 🩹 最新更新（v1.5.24）
+
+**修复 FFmpeg 定位到的路径显示成大写后缀（`ffmpeg.EXE`）**：
+
+- **🔤 现象**：高级设置页的 FFmpeg 状态常驻显示 `FFmpeg 已就绪：C:\...\ffmpeg\ffmpeg.EXE`，后缀是大写
+- **🐛 根因**：程序按小写 `ffmpeg.exe` 去找，Windows 文件名不区分大小写所以能命中，但**回显给界面的是磁盘上的原始拼写**——磁盘文件叫什么就显示什么，于是成了 `.EXE`；下发给 FFmpeg 的命令行也带着这串大写
+- **🔧 修法**：找到后统一按规范拼写 `ffmpeg.exe` 回填，显示与调用都稳定成小写；顺手兼容 `FFMPEG.EXE` / `Ffmpeg.Exe` 等各种写法，以及用户解压后自行改名成 `ffmpeg-n7.1-essentials.exe` 这类变体（不再把同目录的 `ffplay.exe` 误当成 ffmpeg）
+- **🧪 回归测试**：新增 `tools/verify_ffmpeg_case.py`，直接对源码里的真实方法做 8 项断言，全部通过
+
+<details><summary>v1.5.23 版新增</summary>
 
 **修复保存后「有画面无声音」——FFmpeg 现在内置进 exe，绿色版拷到哪都能合成音频**：
 
@@ -52,6 +61,8 @@
 - **🧾 失败原因不再含糊**：区分「未找到 FFmpeg」（明确告诉你该把它放到哪个确切路径）和「FFmpeg 跑了但报错」（附 FFmpeg 错误尾部），完整现场写进 `SuperHiVision_error.log`
 - **✅ 新增「检查 FFmpeg」自检**：高级设置页常驻显示 FFmpeg 状态（✅ 路径 / ❌ 缺失），一键重新探测给出结论
 - **🎞️ 帧率校正同样受益**：以前找不到 FFmpeg 时帧率校正会静默跳过（表现为快放/慢放），现在也能用到内置副本
+
+</details>
 
 <details><summary>v1.5.22 版新增</summary>
 
@@ -120,7 +131,7 @@
 
 ```bash
 # 直接双击运行（无控制台窗口）
-SuperHiVision_v1.5.23.exe
+SuperHiVision_v1.5.24.exe
 ```
 
 #### 方式二：双击 VBS 启动器（自动选择 EXE / Python 源码）
@@ -132,7 +143,7 @@ SuperHiVision_Launcher.vbs
 
 启动器自动按以下优先级选择运行方式：
 
-1. 若同目录存在已打包的 `SuperHiVision_v1.5.23.exe` → 直接启动 EXE
+1. 若同目录存在已打包的 `SuperHiVision_v1.5.24.exe` → 直接启动 EXE
 2. 否则使用 `pythonw.exe`（无控制台）运行 `Super_Hi_Vision_PyQt.py` 源码
 3. 否则运行 `Super_Hi_Vision_App.pyw`（pythonw 启动器）
 4. 最后回退到 `python.exe` 运行源码
@@ -256,7 +267,7 @@ Super_Hi_Vision/
 │   ├── ffmpeg.exe
 │   ├── ffplay.exe
 │   └── ffprobe.exe
-└── SuperHiVision_v1.5.23.exe      # 打包后的可执行文件
+└── SuperHiVision_v1.5.24.exe      # 打包后的可执行文件
 ```
 
 ## 🛠️ 技术栈
@@ -283,4 +294,4 @@ MIT License - 详见 [LICENSE.txt](LICENSE.txt)
 
 **版权**: QLM Network Entertainment Technology Co., Ltd.
 **网站**: https://team.qlm.org.cn
-**版本**: 1.5.23
+**版本**: 1.5.24
