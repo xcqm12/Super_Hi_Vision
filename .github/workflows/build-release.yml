@@ -69,8 +69,8 @@ jobs:
             foreach ($l in $sel) { Write-Output ("::error title=PyI::{0}" -f $l) }
             exit 1
           }
-          if (-not (Test-Path "dist\SuperHiVision_v1.5.23.exe")) {
-            Write-Output "::error title=PyI::未产出 dist\SuperHiVision_v1.5.23.exe"
+          if (-not (Test-Path "dist\SuperHiVision_v1.5.24.exe")) {
+            Write-Output "::error title=PyI::未产出 dist\SuperHiVision_v1.5.24.exe"
             exit 1
           }
 
@@ -83,8 +83,8 @@ jobs:
       - name: Prepare NSIS input files
         shell: pwsh
         run: |
-          Copy-Item -Path "dist/SuperHiVision_v1.5.23.exe" -Destination "SuperHiVision_v1.5.23.exe" -Force
-          Get-ChildItem "SuperHiVision_v1.5.23.exe" | Select-Object Name, Length
+          Copy-Item -Path "dist/SuperHiVision_v1.5.24.exe" -Destination "SuperHiVision_v1.5.24.exe" -Force
+          Get-ChildItem "SuperHiVision_v1.5.24.exe" | Select-Object Name, Length
 
       - name: Build NSIS installer
         shell: pwsh
@@ -96,8 +96,8 @@ jobs:
         with:
           name: SuperHiVision-${{ github.ref_name }}
           path: |
-            dist/SuperHiVision_v1.5.23.exe
-            SuperHiVision_Setup_v1.5.23.exe
+            dist/SuperHiVision_v1.5.24.exe
+            SuperHiVision_Setup_v1.5.24.exe
 
       - name: Create GitHub Release (正式版)
         uses: softprops/action-gh-release@v2
@@ -106,18 +106,15 @@ jobs:
           body: |
             ## Super Hi Vision ${{ github.ref_name }} 正式版
 
-            ### 🆕 本次更新（v1.5.23）
-            - 📦 **FFmpeg 内置进单文件 exe**：绿色版拷到任意目录都能合成音频，不再出现「有画面无声音」（不再分发 ffplay，省约 150MB）
-            - 🐛 **修复「有画面无声音」**：根因是绿色版 exe 不带 FFmpeg，单独拷到别处后音视频合成失败；旧提示既没说清该放哪，也没保住录到的音频
-            - 🔎 **查找范围加宽**：外置 ffmpeg\ → 内置 → bin\ → 上一级 → %LOCALAPPDATA% → C:\ffmpeg\bin / scoop / choco → 注册表 → PATH；结果缓存
-            - 🔊 **失败也不丢音频**：合并失败时把 WAV 另存为 `xxx.audio.wav` 并给出路径
-            - 🧾 **原因明确**：区分「未找到 FFmpeg」（给出确切该放的路径）与「FFmpeg 报错」（附错误尾部），现场写入 error.log
-            - ✅ **新增「检查 FFmpeg」自检**：高级设置页常驻状态 + 一键重新探测
-            - 🎚️ 保留 1.5.23 的降噪强度滑杆、托盘保活、二次点击唤出窗口、静默合成与保存崩溃修复
+            ### 🆕 本次更新（v1.5.24）
+            - 🔤 **修复 FFmpeg 路径显示成大写后缀（`ffmpeg.EXE`）**：程序按小写 `ffmpeg.exe` 查找，Windows 不区分大小写所以能命中，但回显的是磁盘上的原始拼写，于是状态栏显示 `.EXE`、下发给 FFmpeg 的命令行也带着大写；现在统一按规范小写回填，显示与调用都稳定
+            - 🧩 **顺手兼容文件名的各种写法**：`FFMPEG.EXE` / `Ffmpeg.Exe`，以及用户解压后自行改名成 `ffmpeg-n7.1-essentials.exe` 这类变体（同目录宽容匹配）；不再把 `ffplay.exe` 误当成 ffmpeg
+            - 🧪 **新增回归测试** `tools/verify_ffmpeg_case.py`：直接对源码里的真实方法做 8 项断言（大写/全大写/混合/正常/改名变体/缺失/无关 exe/坏文件），全部通过
+            - 🎚️ 保留 1.5.23 的内置 FFmpeg、降噪强度滑杆、托盘保活、二次点击唤出窗口、静默合成与保存崩溃修复
 
             ### 📦 包含内容
-            - **SuperHiVision_v1.5.23.exe** — 单文件绿色版（内置 FFmpeg，拷到任意目录都能用）
-            - **SuperHiVision_Setup_v1.5.23.exe** — NSIS 完整安装包（自动创建桌面/开始菜单快捷方式）
+            - **SuperHiVision_v1.5.24.exe** — 单文件绿色版（内置 FFmpeg，拷到任意目录都能用）
+            - **SuperHiVision_Setup_v1.5.24.exe** — NSIS 完整安装包（自动创建桌面/开始菜单快捷方式）
 
             ### 🚀 使用说明
             - **绿色版**：直接双击即可运行（FFmpeg 已内置，无需额外放 ffmpeg 文件夹）
@@ -127,7 +124,7 @@ jobs:
             - Windows 10 / 11 64 位
             - 无需安装 Python / VC++ 运行库（已内置）
           files: |
-            dist/SuperHiVision_v1.5.23.exe
-            SuperHiVision_Setup_v1.5.23.exe
+            dist/SuperHiVision_v1.5.24.exe
+            SuperHiVision_Setup_v1.5.24.exe
           draft: false
           prerelease: false
