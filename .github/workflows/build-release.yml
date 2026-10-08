@@ -74,6 +74,45 @@ jobs:
             exit 1
           }
 
+      # ---- 代码签名（可选）：仓库配了签名证书 secrets 才会执行，否则自动跳过 ----
+      # 自签名证书只能让「装了这张证书的机器」不再显示未知发布者；要让所有下载者
+      # 都不再看到警告，需要商业 CA 签发的代码签名证书。详见 docs/CODE_SIGNING.md
+      - name: Import signing certificate (optional)
+        shell: pwsh
+        env:
+          SIGNING_PFX_BASE64: ${{ secrets.SIGNING_PFX_BASE64 }}
+          SIGNING_PFX_PASSWORD: ${{ secrets.SIGNING_PFX_PASSWORD }}
+        run: |
+          if (-not $env:SIGNING_PFX_BASE64) {
+            Write-Host 'no SIGNING_PFX_BASE64 secret configured - binaries will stay unsigned'
+            exit 0
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP 'shv-signing.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGNING_PFX_BASE64))
+          $pw = ConvertTo-SecureString -String $env:SIGNING_PFX_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pw
+          $cer = Join-Path $env:RUNNER_TEMP 'shv-signing.cer'
+          Export-Certificate -Cert $cert -FilePath $cer -Force | Out-Null
+          try {
+            Import-Certificate -FilePath $cer -CertStoreLocation Cert:\LocalMachine\Root -ErrorAction Stop | Out-Null
+            Import-Certificate -FilePath $cer -CertStoreLocation Cert:\LocalMachine\TrustedPublisher -ErrorAction Stop | Out-Null
+            Write-Host 'certificate trusted in LocalMachine stores'
+          } catch {
+            Import-Certificate -FilePath $cer -CertStoreLocation Cert:\CurrentUser\Root -ErrorAction Stop | Out-Null
+            Import-Certificate -FilePath $cer -CertStoreLocation Cert:\CurrentUser\TrustedPublisher -ErrorAction Stop | Out-Null
+            Write-Host 'certificate trusted in CurrentUser stores'
+          }
+          "SHV_SIGN_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "signing certificate ready: $($cert.Thumbprint)"
+
+      - name: Sign the green exe (optional)
+        shell: pwsh
+        run: |
+          if (-not $env:SHV_SIGN_THUMBPRINT) { Write-Host 'no signing certificate - skipped'; exit 0 }
+          $ver = (Select-String -Path Super_Hi_Vision_PyQt.py -Pattern '__version__\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          pwsh -NoProfile -File tools\sign_binaries.ps1 -Path "dist\SuperHiVision_v$ver.exe" -Thumbprint $env:SHV_SIGN_THUMBPRINT -NoBackup
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
       - name: Install NSIS
         shell: pwsh
         run: |
@@ -90,6 +129,14 @@ jobs:
         shell: pwsh
         run: |
           & "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi
+
+      - name: Sign the installer (optional)
+        shell: pwsh
+        run: |
+          if (-not $env:SHV_SIGN_THUMBPRINT) { Write-Host 'no signing certificate - skipped'; exit 0 }
+          $ver = (Select-String -Path Super_Hi_Vision_PyQt.py -Pattern '__version__\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          pwsh -NoProfile -File tools\sign_binaries.ps1 -Path "SuperHiVision_Setup_v$ver.exe" -Thumbprint $env:SHV_SIGN_THUMBPRINT -NoBackup
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -110,6 +157,7 @@ jobs:
             - 🔤 **修复 FFmpeg 路径显示成大写后缀（`ffmpeg.EXE`）**：程序按小写 `ffmpeg.exe` 查找，Windows 不区分大小写所以能命中，但回显的是磁盘上的原始拼写，于是状态栏显示 `.EXE`、下发给 FFmpeg 的命令行也带着大写；现在统一按规范小写回填，显示与调用都稳定
             - 🧩 **顺手兼容文件名的各种写法**：`FFMPEG.EXE` / `Ffmpeg.Exe`，以及用户解压后自行改名成 `ffmpeg-n7.1-essentials.exe` 这类变体（同目录宽容匹配）；不再把 `ffplay.exe` 误当成 ffmpeg
             - 🧪 **新增回归测试** `tools/verify_ffmpeg_case.py`：直接对源码里的真实方法做 8 项断言（大写/全大写/混合/正常/改名变体/缺失/无关 exe/坏文件），全部通过
+            - 🪪 **发行者与代码签名**：exe / 安装包属性里发行者固定为 SevenZeroMeowTeam，并支持 CI 自动签名（配好 secrets 即生效，未配则自动跳过）
             - 🎚️ 保留 1.5.23 的内置 FFmpeg、降噪强度滑杆、托盘保活、二次点击唤出窗口、静默合成与保存崩溃修复
 
             ### 📦 包含内容
