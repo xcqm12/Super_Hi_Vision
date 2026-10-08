@@ -9,6 +9,7 @@
 ; Application Info
 !define APPNAME "Super Hi Vision"
 !define COMPANYNAME "QLM Network Entertainment Technology Co., Ltd."
+!define PUBLISHER "SevenZeroMeowTeam"
 !define DESCRIPTION "Advanced HD Screen Recording Tool"
 !define VERSIONMAJOR 1
 !define VERSIONMINOR 5
@@ -24,6 +25,17 @@
 Name "${APPNAME}"
 OutFile "SuperHiVision_Setup_v${VERSIONMAJOR}.${VERSIONMINOR}.${VERSIONBUILD}.exe"
 InstallDir "$PROGRAMFILES64\${APPNAME}"
+
+; ---- 文件版本信息资源：安装包属性里的公司/发行者名称 ----
+; VIProductVersion 必须是四段版本号（x.x.x.x），否则 makensis 会报错。
+VIProductVersion "${VERSIONMAJOR}.${VERSIONMINOR}.${VERSIONBUILD}.0"
+VIAddVersionKey /LANG=2052 "ProductName"     "${APPNAME}"
+VIAddVersionKey /LANG=2052 "CompanyName"     "${PUBLISHER}"
+VIAddVersionKey /LANG=2052 "FileDescription" "${APPNAME} Setup"
+VIAddVersionKey /LANG=2052 "FileVersion"     "${VERSIONMAJOR}.${VERSIONMINOR}.${VERSIONBUILD}"
+VIAddVersionKey /LANG=2052 "ProductVersion"  "${VERSIONMAJOR}.${VERSIONMINOR}.${VERSIONBUILD}"
+VIAddVersionKey /LANG=2052 "LegalCopyright"  "Copyright (C) 2019-2025 ${COMPANYNAME}"
+VIAddVersionKey /LANG=2052 "OriginalFilename" "SuperHiVision_Setup_v${VERSIONMAJOR}.${VERSIONMINOR}.${VERSIONBUILD}.exe"
 
 ; Request Admin Rights
 RequestExecutionLevel admin
