@@ -22,5 +22,6 @@ ffmpeg/
 # ---------- 日志 / 临时 ----------
 *.log
 *.tmp
+_ffmpeg_case_tmp/
 .DS_Store
 Thumbs.db
