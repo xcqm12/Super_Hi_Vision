@@ -21,7 +21,7 @@ desktopPath = shell.SpecialFolders("Desktop")
 targetPath = appDir & "\SuperHiVision_Launcher.vbs"
 
 ' Icon: prefer the packaged EXE, fall back to the Python file
-iconPath = appDir & "\SuperHiVision_v1.5.24.exe"
+iconPath = appDir & "\SuperHiVision_v1.5.25.exe"
 If Not fso.FileExists(iconPath) Then
     iconPath = appDir & "\Super_Hi_Vision_PyQt.py"
 End If
