@@ -1,5 +1,5 @@
 ; Super Hi Vision NSIS Installation Script
-; Version: 1.5.24
+; Version: 1.5.25
 ; 应用模式：启动器通过 wscript 运行，无控制台窗口
 ; 安装包已合成全部运行时依赖（EXE + FFmpeg + 环境检测脚本）
 
@@ -13,12 +13,12 @@
 !define DESCRIPTION "Advanced HD Screen Recording Tool"
 !define VERSIONMAJOR 1
 !define VERSIONMINOR 5
-!define VERSIONBUILD 24
+!define VERSIONBUILD 25
 !define HELPURL "https://team.qlm.org.cn"
 !define UPDATEURL "https://team.qlm.org.cn"
 !define ABOUTURL "https://team.qlm.org.cn"
 !define INSTALLSIZE 229000
-!define EXEFILE "SuperHiVision_v1.5.24.exe"
+!define EXEFILE "SuperHiVision_v1.5.25.exe"
 !define LAUNCHERVBS "SuperHiVision_Launcher.vbs"
 
 ; Installer Settings
