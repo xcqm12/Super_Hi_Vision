@@ -41,7 +41,7 @@
 - **多主题支持**
   - 6种精美主题（深色/浅色/海洋/日落/森林/紫色）
 
-## 🩹 最新更新（v1.5.25）
+## 🩹 最新更新（v1.5.26）
 
 **修复 FFmpeg 定位到的路径显示成大写后缀（`ffmpeg.EXE`）**：
 
@@ -133,7 +133,7 @@
 
 ```bash
 # 直接双击运行（无控制台窗口）
-SuperHiVision_v1.5.25.exe
+SuperHiVision_v1.5.26.exe
 ```
 
 #### 方式二：双击 VBS 启动器（自动选择 EXE / Python 源码）
@@ -145,7 +145,7 @@ SuperHiVision_Launcher.vbs
 
 启动器自动按以下优先级选择运行方式：
 
-1. 若同目录存在已打包的 `SuperHiVision_v1.5.25.exe` → 直接启动 EXE
+1. 若同目录存在已打包的 `SuperHiVision_v1.5.26.exe` → 直接启动 EXE
 2. 否则使用 `pythonw.exe`（无控制台）运行 `Super_Hi_Vision_PyQt.py` 源码
 3. 否则运行 `Super_Hi_Vision_App.pyw`（pythonw 启动器）
 4. 最后回退到 `python.exe` 运行源码
@@ -269,7 +269,7 @@ Super_Hi_Vision/
 │   ├── ffmpeg.exe
 │   ├── ffplay.exe
 │   └── ffprobe.exe
-└── SuperHiVision_v1.5.25.exe      # 打包后的可执行文件
+└── SuperHiVision_v1.5.26.exe      # 打包后的可执行文件
 ```
 
 ## 🛠️ 技术栈
@@ -296,4 +296,4 @@ MIT License - 详见 [LICENSE.txt](LICENSE.txt)
 
 **版权**: QLM Network Entertainment Technology Co., Ltd.
 **网站**: https://team.qlm.org.cn
-**版本**: 1.5.25
+**版本**: 1.5.26
