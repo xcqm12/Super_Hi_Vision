@@ -4,6 +4,7 @@
 
 **正式发行版**：把 1.5.25 的代码签名、凭据检查与构建改进一起打包发版（1.5.25 未单独发版，其内容并入本版）。
 
+- **修复：「有画面无声音」——FFmpeg 写不进视频目录时的合并回退**。某些环境下 FFmpeg **子进程**无法在视频所在目录创建文件（目录权限、文件被占用、杀软/「受控文件夹访问」拦写），报 `Error opening output ..._with_audio.mp4: Permission denied`，结果录音只能另存成 `.audio.wav`。现在 FFmpeg 先写**系统临时目录**（程序刚在那里成功写过 WAV，可用性已知），合成完成后由程序把结果搬到视频旁边；日志同时记录**试过哪些输出路径**和**目标目录用 Python 是否可写**，下次一眼就能定位是目录侧还是子进程侧的问题
 - **代码签名**：exe / 安装包的属性与 UAC 提示里，发行者显示为 `SevenZeroMeowTeam`；`tools/sign_binaries.ps1` **优先调用微软 `signtool.exe`**，机器上没有 Windows SDK 时自动回退到 PowerShell `Set-AuthenticodeSignature`（两者产出的签名完全等价），带 RFC3161 时间戳
 - **凭据泄漏自动检查**：`tools/check_no_secrets.py` 已接入 CI 最前端的预检，任何误提交的密钥都会在**打包之前**被拦下（只报文件与类型，不回显命中内容）
 - **CI 不再硬编码版本号**：产物路径改用通配符 / `${{ github.ref_name }}`，以后升版只需改源码里的 `__version__`

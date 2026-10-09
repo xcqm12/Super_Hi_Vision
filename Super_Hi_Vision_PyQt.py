@@ -2773,7 +2773,18 @@ class ScreenRecorderApp(QMainWindow):
 
             base_name = os.path.splitext(self.output_file)[0]
             ext = os.path.splitext(self.output_file)[1] or ".mp4"
-            temp_output = base_name + "_with_audio" + ext
+
+            # 输出候选：优先视频所在目录；若 FFmpeg 在那里就是写不进去（目录权限、
+            # 文件被占用、杀软/「受控文件夹访问」拦写等），就退到系统临时目录 ——
+            # 那里程序刚刚成功写过 WAV，可用性是已知的。合成完再用 Python 搬过去
+            # （Python 写目标目录这一步是验证过可行的，能绕开只拦子进程的限制）。
+            primary_output = base_name + "_with_audio" + ext
+            fallback_output = os.path.join(
+                tempfile.gettempdir(),
+                os.path.basename(base_name) + "_with_audio" + ext)
+            output_candidates = [primary_output]
+            if os.path.abspath(fallback_output) != os.path.abspath(primary_output):
+                output_candidates.append(fallback_output)
 
             # MP4/MOV 加 faststart：把索引放到文件头，避免播放器打开即报错/卡顿
             faststart = ['-movflags', '+faststart'] if ext.lower() in ('.mp4', '.mov', '.m4v') else []
@@ -2793,56 +2804,88 @@ class ScreenRecorderApp(QMainWindow):
                 ('重新编码', ['-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-pix_fmt', 'yuv420p']),
             ]
 
-            def build_cmd(video_opts, audio_filter=None):
+            def build_cmd(video_opts, audio_filter=None, output_path=None):
                 cmd = [ffmpeg_cmd_exe, '-y', '-i', self.output_file, '-i', temp_audio_file]
                 cmd += video_opts
                 cmd += ['-c:a', 'aac', '-b:a', '128k',
                         '-ar', str(sample_rate), '-ac', str(min(channels, 2))]
                 if audio_filter:
                     cmd += ['-af', audio_filter]
-                cmd += ['-shortest'] + faststart + [temp_output]
+                cmd += ['-shortest'] + faststart + [output_path or primary_output]
                 return cmd
 
             merged = False
             last_err = ''
-            for label, video_opts in video_attempts:
-                for filter_label, audio_filter in filter_variants:
-                    if os.path.exists(temp_output):
-                        try:
-                            os.remove(temp_output)
-                        except Exception:
-                            pass
-                    print(f"🔄 正在合并音视频（{label} / {filter_label}）...")
-                    result = subprocess.run(
-                        build_cmd(video_opts, audio_filter), capture_output=True, text=True,
-                        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-                    )
-                    if (result.returncode == 0 and os.path.exists(temp_output)
-                            and os.path.getsize(temp_output) > 0):
-                        merged = True
-                        print(f"✅ 音视频合并成功（{label} / {filter_label}）")
+            used_output = None
+            for temp_output in output_candidates:
+                for label, video_opts in video_attempts:
+                    for filter_label, audio_filter in filter_variants:
+                        if os.path.exists(temp_output):
+                            try:
+                                os.remove(temp_output)
+                            except Exception:
+                                pass
+                        print(f"🔄 正在合并音视频（{label} / {filter_label} → {temp_output}）...")
+                        result = subprocess.run(
+                            build_cmd(video_opts, audio_filter, temp_output),
+                            capture_output=True, text=True,
+                            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+                        )
+                        if (result.returncode == 0 and os.path.exists(temp_output)
+                                and os.path.getsize(temp_output) > 0):
+                            merged = True
+                            used_output = temp_output
+                            print(f"✅ 音视频合并成功（{label} / {filter_label}）")
+                            break
+                        last_err = (result.stderr or '')[-500:]
+                    if merged:
                         break
-                    last_err = (result.stderr or '')[-500:]
                 if merged:
                     break
 
             if merged:
-                os.remove(self.output_file)
-                os.rename(temp_output, self.output_file)
+                try:
+                    if os.path.exists(self.output_file):
+                        os.remove(self.output_file)
+                except Exception as e:
+                    log_diagnostic(f"合并后删除原视频失败: {type(e).__name__}: {e}")
+                try:
+                    shutil.move(used_output, self.output_file)
+                except Exception as e:
+                    # 跨盘或目标被占用：退化为复制，绝不因此丢掉合成结果
+                    log_diagnostic(f"移动合成结果失败({type(e).__name__}: {e})，改用复制")
+                    shutil.copy2(used_output, self.output_file)
+                    try:
+                        os.remove(used_output)
+                    except Exception:
+                        pass
                 self._audio_merge_error = None
                 print(f"✅ 音视频合并完成: {self.output_file}")
             else:
                 print(f"❌ 音视频合并失败: {last_err}")
-                if os.path.exists(temp_output):
-                    try:
-                        os.remove(temp_output)
-                    except Exception:
-                        pass
+                for leftover in output_candidates:
+                    if os.path.exists(leftover):
+                        try:
+                            os.remove(leftover)
+                        except Exception:
+                            pass
                 # 合并失败也绝不丢音频：把 WAV 落到视频旁边，用户装上 FFmpeg 后可再合成
                 self._audio_merge_error = (last_err or "").strip() or "FFmpeg 返回错误"
+                # 把可诊断的现场一并写进日志：试过哪些输出路径、目标目录当前是否可写。
+                # 这样下次再出现「Permission denied」能一眼看出是目录侧还是 FFmpeg 侧。
+                try:
+                    probe = os.path.join(os.path.dirname(self.output_file), ".shv_write_probe")
+                    with open(probe, "wb") as f:
+                        f.write(b"x")
+                    os.remove(probe)
+                    dir_probe = "目标目录用 Python 可写（说明是被拦在子进程侧）"
+                except Exception as e:
+                    dir_probe = f"目标目录用 Python 也不可写: {type(e).__name__}: {e}"
                 log_diagnostic(
                     "音视频合并失败，FFmpeg=" + str(ffmpeg_cmd_exe) +
                     chr(10) + "输出: " + str(self.output_file) +
+                    chr(10) + "尝试过的输出路径: " + " | ".join(output_candidates) +
+                    chr(10) + "目录探测: " + dir_probe +
                     chr(10) + "FFmpeg 错误尾部:" + chr(10) + self._audio_merge_error
                 )
                 saved = self._salvage_audio(temp_audio_file)
