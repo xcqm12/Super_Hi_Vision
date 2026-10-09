@@ -5,6 +5,7 @@
 **正式发行包**：把 1.5.24 的修复与代码签名一起打包发布（1.5.24 未单独发版，其内容并入本版）。
 
 ### 本次新增
+- **凭据泄漏自动检查**：新增 `tools/check_no_secrets.py`，扫描「git 会提交的文件」（含二进制），命中 GitHub / HuggingFace / OpenAI / Anthropic / AWS / Google / Slack / GitLab / npm token、私钥块、硬编码口令等特征即失败（退出码 1）。已接入 CI 最前端的预检，**任何误提交的密钥都会在打包前被拦下**。脚本只报告「文件路径 + 命中类型」，**绝不回显命中内容**，避免把凭据写进 CI 日志
 - **CI 去掉版本号硬编码**：workflow 里 11 处 `SuperHiVision_v<版本>.exe` 改为通配符查找 / `${{ github.ref_name }}`，以后再升版不必逐个修改（漏改会让 CI 在「检查产物」那步直接失败）
 - **重新打包并正式签名**：exe / 安装包的属性与 UAC 提示里，发行者显示为 `SevenZeroMeowTeam`
 
