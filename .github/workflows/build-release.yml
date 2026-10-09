@@ -28,6 +28,14 @@ jobs:
         with:
           python-version: '3.13'
 
+      # 最早的预检：任何被误提交的凭据都在这里拦下，而不是等打完包才发现
+      # 脚本只报「文件 + 命中类型」，不回显命中内容，避免把凭据写进 CI 日志
+      - name: 预检：无凭据泄漏
+        shell: pwsh
+        run: |
+          python tools\check_no_secrets.py
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
       - name: Install Python dependencies
         shell: pwsh
         run: |
@@ -163,6 +171,7 @@ jobs:
             - 🔤 **修复 FFmpeg 路径显示成大写后缀（`ffmpeg.EXE`）**：程序按小写 `ffmpeg.exe` 查找，Windows 不区分大小写所以能命中，但回显的是磁盘上的原始拼写，于是状态栏显示 `.EXE`、下发给 FFmpeg 的命令行也带着大写；现在统一按规范小写回填，显示与调用都稳定
             - 🧩 **顺手兼容文件名的各种写法**：`FFMPEG.EXE` / `Ffmpeg.Exe`，以及用户解压后自行改名成 `ffmpeg-n7.1-essentials.exe` 这类变体（同目录宽容匹配）；不再把 `ffplay.exe` 误当成 ffmpeg
             - 🧪 **新增回归测试** `tools/verify_ffmpeg_case.py`：直接对源码里的真实方法做 8 项断言（大写/全大写/混合/正常/改名变体/缺失/无关 exe/坏文件），全部通过
+            - 🔐 **新增凭据泄漏检查** `tools/check_no_secrets.py`：打包前扫描会被提交的文件，命中凭据特征就失败
             - 🪪 **发行者与代码签名**：exe / 安装包属性里发行者固定为 SevenZeroMeowTeam，并支持 CI 自动签名（配好 secrets 即生效，未配则自动跳过）
             - 🎚️ 保留 1.5.23 的内置 FFmpeg、降噪强度滑杆、托盘保活、二次点击唤出窗口、静默合成与保存崩溃修复
 
