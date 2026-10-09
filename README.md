@@ -41,9 +41,19 @@
 - **多主题支持**
   - 6种精美主题（深色/浅色/海洋/日落/森林/紫色）
 
-## 🩹 最新更新（v1.5.27）
+## 🩹 最新更新（v1.5.28）
 
-**修复音视频合并报 `Permission denied`（「有画面无声音」的真正修好）**：
+**修复：安全软件按「程序」拦截 FFmpeg 写文件 —— 合并彻底改成走管道**
+
+- **🎬 承接 1.5.27**：上一版的「改写临时目录」对策**确实生效了**（日志里能看到两个候选路径都试过），但**临时目录同样 `Permission denied`** —— 说明限制根本不在目录上
+- **🐛 真正的根因**：限制是**按程序**下的 —— 机器上装着防勒索 / EDR 类安全软件（实测有 `XZGuarder`、`DClaw 龙虾安全本地版`、`edrAgent` 等），而随包分发的 `ffmpeg.exe` **没有数字签名**，正是这类软件默认拦截的对象；同一目录下**程序自己（Python）写文件完全正常**（日志里的目录探测已证实），所以「换目录」永远绕不过去
+- **🔧 修法**：**最后兜底改成不让 FFmpeg 碰文件系统** —— 用 `frag_keyframe+empty_moov` 把结果直接输出到 **stdout**，由程序边收边写盘。FFmpeg 全程不打开任何输出文件，按写入拦截的策略就无从下手
+- **🧪 回归测试**：AST 取出真实方法执行，让**每一次直接写文件都返回 `Permission denied`**（复刻真实场景），验证「8 次写文件全被拒 → 自动转入管道 → 合并成功 → 落位 → 含音频轨 → 无残留」
+- **📺 兼容性**：管道模式产出**分片 MP4**（fragmented），主流播放器都能正常播放，视频仍是流复制（不重编码）画质无损。若剪辑软件对分片 MP4 敏感，可在安全软件里把 `ffmpeg.exe` 加入白名单，那样就会走回普通 MP4
+
+**v1.5.27 起已包含**：
+
+**修复音视频合并报 `Permission denied`（改写临时目录）**：
 
 - **🎬 现象**：录制结束保存时，视频和音频都生成成功，但**合并**这一步失败，弹窗提示「有画面无声音」，最终只得到一个**没声音的 mp4**（音频另存为 `.audio.wav`）；FFmpeg 报 `Error opening output ..._with_audio.mp4: Permission denied`
 - **🐛 根因**：**同一个目录，程序自己（Python）能写**（视频和 WAV 都是它写的），**FFmpeg 子进程却写不进去** —— 属于被拦在「子进程侧」（常见于杀软 / Windows「受控文件夹访问」的写入拦截），不是目录权限问题
@@ -142,7 +152,7 @@
 
 ```bash
 # 直接双击运行（无控制台窗口）
-SuperHiVision_v1.5.27.exe
+SuperHiVision_v1.5.28.exe
 ```
 
 #### 方式二：双击 VBS 启动器（自动选择 EXE / Python 源码）
@@ -154,7 +164,7 @@ SuperHiVision_Launcher.vbs
 
 启动器自动按以下优先级选择运行方式：
 
-1. 若同目录存在已打包的 `SuperHiVision_v1.5.27.exe` → 直接启动 EXE
+1. 若同目录存在已打包的 `SuperHiVision_v1.5.28.exe` → 直接启动 EXE
 2. 否则使用 `pythonw.exe`（无控制台）运行 `Super_Hi_Vision_PyQt.py` 源码
 3. 否则运行 `Super_Hi_Vision_App.pyw`（pythonw 启动器）
 4. 最后回退到 `python.exe` 运行源码
@@ -278,7 +288,7 @@ Super_Hi_Vision/
 │   ├── ffmpeg.exe
 │   ├── ffplay.exe
 │   └── ffprobe.exe
-└── SuperHiVision_v1.5.27.exe      # 打包后的可执行文件
+└── SuperHiVision_v1.5.28.exe      # 打包后的可执行文件
 ```
 
 ## 🛠️ 技术栈
@@ -305,4 +315,4 @@ MIT License - 详见 [LICENSE.txt](LICENSE.txt)
 
 **版权**: QLM Network Entertainment Technology Co., Ltd.
 **网站**: https://team.qlm.org.cn
-**版本**: 1.5.27
+**版本**: 1.5.28

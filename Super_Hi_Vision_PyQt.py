@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Super Hi Vision - 高级超高清屏幕录制工具 (PyQt5现代化版本)
-版本: 1.5.27
+版本: 1.5.28
 使用PyQt5构建现代化界面，保持原有录制逻辑不变
 支持中英文语言切换
 支持多主题切换
@@ -244,7 +244,7 @@ if not check_and_install_pyqt5():
         "程序无法启动，PyQt5 依赖不可用！\n\n"
         "请确保已安装 Python 和 pip，然后运行：\n"
         "    pip install PyQt5\n\n"
-        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.27.exe）。"
+        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.28.exe）。"
     )
     sys.exit(1)
 
@@ -289,7 +289,7 @@ except Exception:
 # ==================== 版本和版权信息 ====================
 __author__ = "QLM Network Entertainment Technology Co., Ltd."
 __copyright__ = "Copyright 2019-2025, QLM Network Entertainment Technology Co., Ltd."
-__version__ = "1.5.27"
+__version__ = "1.5.28"
 __license__ = "MIT"
 __email__ = "qlm@qlm.org.cn"
 __website__ = "https://team.qlm.org.cn"
@@ -2842,6 +2842,64 @@ class ScreenRecorderApp(QMainWindow):
                         break
                 if merged:
                     break
+
+            if not merged:
+                # 连系统临时目录也写不进去 —— 这通常不是目录权限，而是安全软件按
+                # 「程序」拦截（防勒索 / 受控文件夹访问 / EDR 会拦未签名的 ffmpeg.exe，
+                # 于是换任何目录都没用）。最后手段：让 FFmpeg 把结果输出到 stdout，
+                # 由 Python 落盘 —— 这样 FFmpeg 全程不打开任何输出文件。
+                print("⚠️ 直接写文件被系统拦截，改用管道接收（FFmpeg 不落盘）...")
+                for label, video_opts in video_attempts:
+                    for filter_label, audio_filter in filter_variants:
+                        print(f"🔄 管道合并（{label} / {filter_label}）...")
+                        cmd = [ffmpeg_cmd_exe, '-y', '-i', self.output_file,
+                               '-i', temp_audio_file]
+                        cmd += video_opts
+                        cmd += ['-c:a', 'aac', '-b:a', '128k',
+                                '-ar', str(sample_rate), '-ac', str(min(channels, 2))]
+                        if audio_filter:
+                            cmd += ['-af', audio_filter]
+                        # 管道不可 seek，MP4 必须写成可分片的流式格式
+                        cmd += ['-shortest', '-f', 'mp4',
+                                '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+                                'pipe:1']
+                        try:
+                            proc = subprocess.Popen(
+                                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                            collected = []
+                            drain = threading.Thread(
+                                target=lambda p=proc, c=collected: c.append(p.stderr.read()),
+                                daemon=True)
+                            drain.start()
+                            written = 0
+                            with open(primary_output, 'wb') as fh:
+                                while True:
+                                    chunk = proc.stdout.read(1 << 20)
+                                    if not chunk:
+                                        break
+                                    fh.write(chunk)
+                                    written += len(chunk)
+                            drain.join(timeout=30)
+                            proc.wait()
+                            err_text = collected[0] if collected else b''
+                            if isinstance(err_text, bytes):
+                                err_text = err_text.decode('utf-8', 'replace')
+                            if proc.returncode == 0 and written > 0:
+                                merged = True
+                                used_output = primary_output
+                                print(f"✅ 管道方式合并成功（{label} / {filter_label}）")
+                                break
+                            last_err = (err_text or '')[-500:]
+                        except Exception as e:
+                            last_err = f"{type(e).__name__}: {e}"
+                        if not merged and os.path.exists(primary_output):
+                            try:
+                                os.remove(primary_output)
+                            except Exception:
+                                pass
+                    if merged:
+                        break
 
             if merged:
                 try:

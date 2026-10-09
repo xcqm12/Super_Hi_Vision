@@ -1,5 +1,14 @@
 # Super Hi Vision Changelog
 
+## Version 1.5.28 (2026-10-09)
+
+### 修复：安全软件按「程序」拦截 FFmpeg 写文件，导致音视频合并始终失败
+- **承接 1.5.27**：上一版「改写临时目录」的对策**确实生效了**（日志里能看到两个候选路径都试过），但**临时目录同样 `Permission denied`** —— 说明限制根本不在目录上
+- **根因**：限制是**按程序**下的 —— 机器上装着防勒索 / EDR 类安全软件（实测有 `XZGuarder`、`DClaw 龙虾安全本地版`、`edrAgent`），而随包分发的 `ffmpeg.exe` **没有数字签名**，正是这类软件默认拦截的对象；同一目录下**程序自己（Python）写文件完全正常**（日志里的目录探测已证实），所以「换目录」永远绕不过去
+- **修法**：**最后兜底改为不让 FFmpeg 碰文件系统** —— 用 `-f mp4 -movflags frag_keyframe+empty_moov+default_base_moof` 把结果直接输出到 **stdout**，由程序边收边写盘。FFmpeg 全程不打开任何输出文件，按写入拦截的策略就无从下手
+- **回归测试**：用 AST 取出真实方法执行，让**每一次直接写文件都返回 `Permission denied`**（复刻真实场景），验证：8 次写文件全被拒 → 自动转入管道 → 合并成功 → 产物落位 → **含音频轨** → 无残留
+- **兼容性说明**：管道模式产出的是**分片 MP4**（fragmented），主流播放器均可正常播放，视频仍是流复制（不重编码）画质无损。若剪辑软件对分片 MP4 敏感，可同时在安全软件里把 `ffmpeg.exe` 加入白名单，那样会走回普通 MP4
+
 ## Version 1.5.27 (2026-10-09)
 
 ### 修复：音视频合并报 `Permission denied`（「有画面无声音」的真正修好）
@@ -366,4 +375,4 @@ Super Hi Vision is a professional HD screen recording tool featuring:
 
 **Copyright**: Copyright 2019-2025 QLM Network Entertainment Technology Co., Ltd.
 **Website**: https://team.qlm.org.cn
-**Version**: 1.5.27
+**Version**: 1.5.28
