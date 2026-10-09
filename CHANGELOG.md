@@ -1,5 +1,13 @@
 # Super Hi Vision Changelog
 
+## Version 1.5.27 (2026-10-09)
+
+### 修复：音视频合并报 `Permission denied`（「有画面无声音」的真正修好）
+- **现象**：录制结束保存时，视频与音频都生成成功，但**合并**这一步失败，弹窗提示「有画面无声音」，最终只得到一个没声音的 mp4（音频另存为 `.audio.wav`）；FFmpeg 报 `Error opening output ..._with_audio.mp4: Permission denied`
+- **根因**：**同一个目录，程序自己（Python）能写**（视频、WAV 都是它写的），**FFmpeg 子进程却写不进去** —— 属于被拦在「子进程侧」（常见于杀软 / Windows「受控文件夹访问」的文件写入拦截），而不是目录权限问题
+- **修法**：不再让 FFmpeg 往那儿写 —— 先输出到**系统临时目录**（程序刚在那里成功写过 WAV，可用性已知），合成完成后由程序把结果搬到视频旁边（跨盘或被占用时自动退化为复制）。合并失败时日志额外记录**试过哪些输出路径**与**目标目录用 Python 是否可写**，下次一眼可定位是目录侧还是子进程侧
+- **回归测试**：用 AST 从源码取出**真实的** `merge_audio_video()` 执行（不是副本），让目标目录的每次尝试都返回 `Permission denied`，验证：候选 1 试满 4 种组合 → 回退临时目录 → 合并成功 → 落位到目标 → **产物含音频轨** → 临时目录无残留
+
 ## Version 1.5.26 (2026-10-09)
 
 **正式发行版**：把 1.5.25 的代码签名、凭据检查与构建改进一起打包发版（1.5.25 未单独发版，其内容并入本版）。
@@ -358,4 +366,4 @@ Super Hi Vision is a professional HD screen recording tool featuring:
 
 **Copyright**: Copyright 2019-2025 QLM Network Entertainment Technology Co., Ltd.
 **Website**: https://team.qlm.org.cn
-**Version**: 1.5.26
+**Version**: 1.5.27

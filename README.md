@@ -41,7 +41,16 @@
 - **多主题支持**
   - 6种精美主题（深色/浅色/海洋/日落/森林/紫色）
 
-## 🩹 最新更新（v1.5.26）
+## 🩹 最新更新（v1.5.27）
+
+**修复音视频合并报 `Permission denied`（「有画面无声音」的真正修好）**：
+
+- **🎬 现象**：录制结束保存时，视频和音频都生成成功，但**合并**这一步失败，弹窗提示「有画面无声音」，最终只得到一个**没声音的 mp4**（音频另存为 `.audio.wav`）；FFmpeg 报 `Error opening output ..._with_audio.mp4: Permission denied`
+- **🐛 根因**：**同一个目录，程序自己（Python）能写**（视频和 WAV 都是它写的），**FFmpeg 子进程却写不进去** —— 属于被拦在「子进程侧」（常见于杀软 / Windows「受控文件夹访问」的写入拦截），不是目录权限问题
+- **🔧 修法**：不再让 FFmpeg 往那儿写 —— 先输出到**系统临时目录**（程序刚在那里成功写过 WAV，可用性已知），合成完成后由程序把结果搬到视频旁边（跨盘或被占用时自动退化为复制）；失败时日志额外记录**试过哪些输出路径**和**目标目录用 Python 是否可写**，下次一眼定位
+- **🧪 回归测试**：用 AST 从源码取出**真实的** `merge_audio_video()` 执行（不是副本），让目标目录的每次尝试都返回 `Permission denied`，验证「回退 → 合成成功 → 落位 → 含音频轨 → 无残留」
+
+**v1.5.26 起已包含**：
 
 **修复 FFmpeg 定位到的路径显示成大写后缀（`ffmpeg.EXE`）**：
 
@@ -133,7 +142,7 @@
 
 ```bash
 # 直接双击运行（无控制台窗口）
-SuperHiVision_v1.5.26.exe
+SuperHiVision_v1.5.27.exe
 ```
 
 #### 方式二：双击 VBS 启动器（自动选择 EXE / Python 源码）
@@ -145,7 +154,7 @@ SuperHiVision_Launcher.vbs
 
 启动器自动按以下优先级选择运行方式：
 
-1. 若同目录存在已打包的 `SuperHiVision_v1.5.26.exe` → 直接启动 EXE
+1. 若同目录存在已打包的 `SuperHiVision_v1.5.27.exe` → 直接启动 EXE
 2. 否则使用 `pythonw.exe`（无控制台）运行 `Super_Hi_Vision_PyQt.py` 源码
 3. 否则运行 `Super_Hi_Vision_App.pyw`（pythonw 启动器）
 4. 最后回退到 `python.exe` 运行源码
@@ -269,7 +278,7 @@ Super_Hi_Vision/
 │   ├── ffmpeg.exe
 │   ├── ffplay.exe
 │   └── ffprobe.exe
-└── SuperHiVision_v1.5.26.exe      # 打包后的可执行文件
+└── SuperHiVision_v1.5.27.exe      # 打包后的可执行文件
 ```
 
 ## 🛠️ 技术栈
@@ -296,4 +305,4 @@ MIT License - 详见 [LICENSE.txt](LICENSE.txt)
 
 **版权**: QLM Network Entertainment Technology Co., Ltd.
 **网站**: https://team.qlm.org.cn
-**版本**: 1.5.26
+**版本**: 1.5.27
