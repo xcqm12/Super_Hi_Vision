@@ -68,7 +68,7 @@ def _search_bases():
     """返回可能放置 ffmpeg 目录的候选父目录（按优先级）
 
     打包为单文件 exe 后 __file__ 指向 PyInstaller 的临时解包目录，只按 __file__
-    查找会漏掉随程序安装在 <安装目录>\ffmpeg 下的 ffmpeg，故需一并枚举。
+    查找会漏掉随程序安装在 <安装目录>\\ffmpeg 下的 ffmpeg，故需一并枚举。
     """
     bases = []
     mei = getattr(sys, "_MEIPASS", None)
