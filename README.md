@@ -50,6 +50,7 @@
 - **🔧 修法**：找到后统一按规范拼写 `ffmpeg.exe` 回填，显示与调用都稳定成小写；顺手兼容 `FFMPEG.EXE` / `Ffmpeg.Exe` 等各种写法，以及用户解压后自行改名成 `ffmpeg-n7.1-essentials.exe` 这类变体（不再把同目录的 `ffplay.exe` 误当成 ffmpeg）
 - **🧪 回归测试**：新增 `tools/verify_ffmpeg_case.py`，直接对源码里的真实方法做 8 项断言，全部通过
 - **🪪 发行者与代码签名**：exe / 安装包的属性里发行者固定为 **SevenZeroMeowTeam**（版本号自动取自源码，不用两处维护）；同时提供自签名代码签名脚本与 CI 自动签名开关（配好 secrets 即生效，未配则自动跳过）。⚠️ 自签名只在本机取消「未知发布者」提示，要让**所有下载者**都不看到警告需使用商业证书 —— 详见 [docs/CODE_SIGNING.md](docs/CODE_SIGNING.md)
+- **🔐 凭据泄漏自动检查**：新增 `tools/check_no_secrets.py`，扫描会被提交的文件（含二进制），命中 GitHub / HuggingFace / OpenAI / Anthropic / AWS / Google / Slack / GitLab / npm token、私钥块、硬编码口令等特征即失败；已接入 CI 最前端的预检，**误提交的密钥会在打包前被拦下**。脚本只报「文件 + 命中类型」，**绝不回显命中内容**，不会把凭据写进 CI 日志
 
 <details><summary>v1.5.23 版新增</summary>
 
