@@ -258,12 +258,12 @@ from PyQt5.QtWidgets import (
     QSystemTrayIcon, QMenu, QAction, QToolButton
 )
 from PyQt5.QtCore import (
-    Qt, QTimer, QThread, pyqtSignal, QSize, QPoint, QRect,
+    Qt, QTimer, QThread, pyqtSignal, QSize, QPoint, QRect, QRectF, QPointF,
     QObject, QEvent, QCoreApplication, QTranslator, QLibraryInfo
 )
 from PyQt5.QtNetwork import QLocalServer, QLocalSocket
 from PyQt5.QtGui import (
-    QFont, QColor, QPalette, QBrush, QLinearGradient, QPainter,
+    QFont, QColor, QPalette, QBrush, QLinearGradient, QPainter, QPen,
     QIcon, QPixmap, QCursor, QFontDatabase, QKeySequence
 )
 
@@ -897,43 +897,212 @@ class DrawingTool:
         self.shapes = []
         self.temp_shape = None
 
-    def apply_drawings(self, frame):
-        """将绘制应用到帧上"""
-        frame_copy = frame.copy()
+    def apply_drawings(self, frame, offset_x=0, offset_y=0):
+        """将绘制应用到帧上
 
-        for shape in self.shapes:
+        shape 坐标为屏幕物理像素（与 ImageGrab 抓帧同一坐标系）；
+        offset_x/offset_y 是本帧采集区域在屏幕上的原点（全屏/自定义为 0，
+        跟随鼠标模式为跟踪区左上角），落笔前需减掉，否则画到错误位置。
+        颜色在存储时是 RGB，而这里的帧是 BGR 序，必须先翻转，否则红蓝颠倒。
+        """
+        frame_copy = frame.copy()
+        ox, oy = int(offset_x), int(offset_y)
+
+        def _bgr(color):
+            return (color[2], color[1], color[0])
+
+        def _draw(shape):
+            color = _bgr(shape["color"])
+            thickness = shape["thickness"]
             if shape["type"] == "line":
                 cv2.line(frame_copy,
-                        (shape["x1"], shape["y1"]),
-                        (shape["x2"], shape["y2"]),
-                        shape["color"],
-                        shape["thickness"])
+                        (shape["x1"] - ox, shape["y1"] - oy),
+                        (shape["x2"] - ox, shape["y2"] - oy),
+                        color, thickness)
             elif shape["type"] == "rectangle":
                 cv2.rectangle(frame_copy,
-                             (shape["x1"], shape["y1"]),
-                             (shape["x2"], shape["y2"]),
-                             shape["color"],
-                             shape["thickness"])
+                             (shape["x1"] - ox, shape["y1"] - oy),
+                             (shape["x2"] - ox, shape["y2"] - oy),
+                             color, thickness)
             elif shape["type"] == "circle":
-                center = (shape["x1"], shape["y1"])
+                center = (shape["x1"] - ox, shape["y1"] - oy)
                 radius = int(math.sqrt((shape["x2"] - shape["x1"])**2 +
                                       (shape["y2"] - shape["y1"])**2))
-                cv2.circle(frame_copy, center, radius, shape["color"], shape["thickness"])
+                cv2.circle(frame_copy, center, radius, color, thickness)
+
+        for shape in self.shapes:
+            _draw(shape)
 
         if self.temp_shape:
-            if self.temp_shape["type"] == "rectangle":
-                cv2.rectangle(frame_copy,
-                             (self.temp_shape["x1"], self.temp_shape["y1"]),
-                             (self.temp_shape["x2"], self.temp_shape["y2"]),
-                             self.temp_shape["color"],
-                             self.temp_shape["thickness"])
-            elif self.temp_shape["type"] == "circle":
-                center = (self.temp_shape["x1"], self.temp_shape["y1"])
-                radius = int(math.sqrt((self.temp_shape["x2"] - self.temp_shape["x1"])**2 +
-                                      (self.temp_shape["y2"] - self.temp_shape["y1"])**2))
-                cv2.circle(frame_copy, center, radius, self.temp_shape["color"], self.temp_shape["thickness"])
+            _draw(self.temp_shape)
 
         return frame_copy
+
+# ==================== 全屏透明画板（画图模式的输入与实时预览） ====================
+class DrawingOverlay(QWidget):
+    """画图模式激活时覆盖整个主屏的透明窗口。
+
+    此前画图工具只有配置面板，start_drawing/draw/stop_drawing 从未被任何鼠标
+    事件调用，录制的帧里永远画不出东西。这个窗口就是缺失的输入端：
+    - 激活时捕获鼠标左键，把笔画坐标喂给 DrawingTool（录制循环里的
+      apply_drawings 会把它们画进视频）；
+    - 同时在屏幕上实时把笔画画出来（无抗锯齿，和 cv2 落笔的光栅化一致，
+      即使抓屏也包含本窗口，重画也是同位置同宽度，不会出现重影）；
+    - 画图模式下鼠标被本窗口接管（与常见批注工具一致），Esc 退出。
+
+    坐标统一存储为「屏幕物理像素」：Qt 的鼠标坐标是逻辑坐标，直接用会和
+    ImageGrab 抓到的物理像素帧错位（DPI 缩放环境下尤其明显），所以激活时
+    抓一帧实屏标定换算比——无论进程 DPI 感知状态如何，都和录制帧严格一致。
+    """
+
+    def __init__(self, drawing_tool, on_exit=None, raise_panel=None):
+        super().__init__(None,
+                         Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.drawing_tool = drawing_tool
+        self._on_exit = on_exit          # Esc 退出画图模式时回调（由主窗口提供）
+        self._raise_panel = raise_panel  # 每次落笔后把配置面板抬回透明画板之上
+        self._ratio = 1.0                # 物理像素 / Qt 逻辑像素
+        self._moved_since_press = False  # 本次按下后是否移动过（单击留点用）
+        self._hint_until = 0.0           # 提示条显示到什么时刻（限时，避免录进视频太久）
+        self._hint_timer = QTimer(self)
+        self._hint_timer.setSingleShot(True)
+        self._hint_timer.timeout.connect(self.update)
+        self.setCursor(Qt.CrossCursor)
+        # 画板要能接收键盘事件（Esc 退出画图模式）
+        self.setFocusPolicy(Qt.StrongFocus)
+
+    # ---- 生命周期 ----
+    def start(self):
+        """显示画板并标定坐标换算比（每次激活都重标，分辨率/缩放可能变过）"""
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            return
+        geo = screen.geometry()  # 主屏逻辑坐标
+        self.setGeometry(geo)
+        self._ratio = self._calibrate_ratio(screen, geo)
+        self._hint_until = time.time() + 3.5
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        self.setFocus()
+        self._hint_timer.start(3500)
+
+    def stop(self):
+        self.hide()
+
+    def _calibrate_ratio(self, screen, geo):
+        try:
+            from PIL import ImageGrab
+            img = ImageGrab.grab()
+            if img is not None and geo.width() > 0:
+                return float(img.size[0]) / geo.width()
+        except Exception:
+            pass
+        try:
+            dpr = screen.devicePixelRatio()
+            if dpr and dpr > 0:
+                return float(dpr)
+        except Exception:
+            pass
+        return 1.0
+
+    def _phys(self, event):
+        """Qt 逻辑全局坐标 -> 屏幕物理像素（录制帧坐标系）"""
+        gp = event.globalPos()
+        return int(round(gp.x() / self._ratio)), int(round(gp.y() / self._ratio))
+
+    # ---- 鼠标输入：喂给 DrawingTool ----
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            x, y = self._phys(event)
+            self.drawing_tool.start_drawing(x, y)
+            self._moved_since_press = False
+            self.update()
+        if self._raise_panel:
+            self._raise_panel()
+
+    def mouseMoveEvent(self, event):
+        if self.drawing_tool.drawing:
+            x, y = self._phys(event)
+            self.drawing_tool.draw(x, y)
+            self._moved_since_press = True
+            self.update()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self.drawing_tool.drawing:
+            x, y = self._phys(event)
+            # 画笔原地松开（一次都没移动过）时补一个点，单击也能留下标记
+            if not self._moved_since_press and self.drawing_tool.current_tool == "pen":
+                self.drawing_tool.draw(x, y)
+            self.drawing_tool.stop_drawing()
+            self.update()
+        if self._raise_panel:
+            self._raise_panel()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            if self._on_exit:
+                self._on_exit()
+        else:
+            super().keyPressEvent(event)
+
+    # ---- 实时预览：把 shapes 画在屏幕上 ----
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        try:
+            geo_tl = self.geometry().topLeft()
+            ratio = self._ratio if self._ratio > 0 else 1.0
+
+            def to_local(x, y):
+                # 物理像素 -> 本窗口局部逻辑坐标
+                return QPointF(x / ratio - geo_tl.x(), y / ratio - geo_tl.y())
+
+            def paint_shape(shape):
+                pen = QPen(QColor(shape["color"][0], shape["color"][1], shape["color"][2]))
+                # 线宽按物理像素换算成逻辑宽度，保证预览和录制帧里的粗细一致
+                pen.setWidthF(max(1.0, shape["thickness"] / ratio))
+                painter.setPen(pen)
+                if shape["type"] == "line":
+                    painter.drawLine(to_local(shape["x1"], shape["y1"]),
+                                     to_local(shape["x2"], shape["y2"]))
+                elif shape["type"] == "rectangle":
+                    painter.drawRect(QRectF(to_local(shape["x1"], shape["y1"]),
+                                            to_local(shape["x2"], shape["y2"])))
+                elif shape["type"] == "circle":
+                    r = math.sqrt((shape["x2"] - shape["x1"])**2 +
+                                  (shape["y2"] - shape["y1"])**2) / ratio
+                    c = to_local(shape["x1"], shape["y1"])
+                    painter.drawEllipse(c, r, r)
+
+            painter.setRenderHint(QPainter.Antialiasing, False)
+            for shape in self.drawing_tool.shapes:
+                paint_shape(shape)
+            if self.drawing_tool.temp_shape:
+                paint_shape(self.drawing_tool.temp_shape)
+
+            # 限时提示条：告诉用户画图模式已开启、怎么退出（用抗锯齿画得柔和些）
+            if time.time() < self._hint_until:
+                painter.setRenderHint(QPainter.Antialiasing, True)
+                self._draw_hint(painter)
+        finally:
+            painter.end()
+
+    def _draw_hint(self, painter):
+        text = "🎨 画图模式已开启：按住鼠标左键在屏幕上绘制，Esc 退出"
+        font = QFont()
+        font.setPointSize(11)
+        painter.setFont(font)
+        metrics = painter.fontMetrics()
+        tw = metrics.boundingRect(text).width()
+        th = metrics.height()
+        w, h = tw + 36, th + 16
+        screen_w = self.geometry().width()
+        rect = QRectF((screen_w - w) / 2.0, 16, w, h)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(20, 20, 28, 200))
+        painter.drawRoundedRect(rect, 8, 8)
+        painter.setPen(QColor(255, 255, 255))
+        painter.drawText(rect, Qt.AlignCenter, text)
 
 # ==================== 主应用类 ====================
 class ScreenRecorderApp(QMainWindow):
@@ -1020,6 +1189,7 @@ class ScreenRecorderApp(QMainWindow):
         self.recording_error.connect(self._on_recording_error)
         self._hotkey_listener = None
         self._drawing_window = None
+        self._drawing_overlay = None
 
         # 二次元主题背景
         self.anime_bg_pixmap = None
@@ -2067,10 +2237,13 @@ class ScreenRecorderApp(QMainWindow):
                             from PIL import ImageGrab
                             img = ImageGrab.grab()
                             frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+                            # shape 坐标是屏幕物理像素，全屏帧原点即 (0,0)
+                            frame = self.drawing_tool.apply_drawings(frame)
                         elif self._cap_mode == 'custom':
                             from PIL import ImageGrab
                             img = ImageGrab.grab(bbox=(0, 0, self._cap_width, self._cap_height))
                             frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+                            frame = self.drawing_tool.apply_drawings(frame)
                         elif self._cap_mode == 'follow_mouse':
                             from PIL import ImageGrab
                             area = self.mouse_tracker.get_tracking_area_around_cursor(
@@ -2081,13 +2254,15 @@ class ScreenRecorderApp(QMainWindow):
                                 x, y, w, h = area
                                 img = ImageGrab.grab(bbox=(x, y, x+w, y+h))
                                 frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+                                # 采集区原点在 (x,y)：shape 坐标要减掉原点才落对位置
+                                frame = self.drawing_tool.apply_drawings(
+                                    frame, offset_x=x, offset_y=y)
                             else:
                                 continue
                         else:
                             continue
 
                         if frame is not None and frame.size > 0:
-                            frame = self.drawing_tool.apply_drawings(frame)
                             writer.write(frame)
                             self.frame_count += 1
 
@@ -2969,10 +3144,15 @@ class ScreenRecorderApp(QMainWindow):
             return False
 
     def take_screenshot(self):
-        """截图"""
+        """截图（已有画图笔画时一并烙进截图）"""
         try:
-            from PIL import ImageGrab
+            from PIL import Image, ImageGrab
             screenshot = ImageGrab.grab()
+            if self.drawing_tool.shapes:
+                arr = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
+                # 截图是全屏帧，原点 (0,0)；画板若开着，同位置重画一次不会有重影
+                arr = self.drawing_tool.apply_drawings(arr)
+                screenshot = Image.fromarray(cv2.cvtColor(arr, cv2.COLOR_BGR2RGB))
             filename = f"screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
             filepath = os.path.join(self.output_dir, filename)
             screenshot.save(filepath)
@@ -3023,7 +3203,12 @@ class ScreenRecorderApp(QMainWindow):
         # 停止全局热键监听
         self._stop_global_hotkeys()
 
-        # 关闭画图窗口
+        # 关闭画图窗口与透明画板
+        if getattr(self, '_drawing_overlay', None) is not None:
+            try:
+                self._drawing_overlay.stop()
+            except Exception:
+                pass
         if getattr(self, '_drawing_window', None) is not None:
             try:
                 self._drawing_window.close()
@@ -3208,15 +3393,15 @@ class ScreenRecorderApp(QMainWindow):
             elif action == 'screenshot':
                 self.take_screenshot()
             elif action == 'drawing':
-                self.open_drawing_tool()
+                self.toggle_drawing_mode()
         except Exception as e:
             print(f"❌ 热键动作执行失败 [{action}]: {e}")
 
     def open_drawing_tool(self):
-        """打开/切换画图工具窗口"""
+        """打开/切换画图工具窗口（兼容旧入口：仅显示配置面板，不进入画图模式）"""
         try:
             if self._drawing_window is None:
-                self._drawing_window = DrawingWindow(self.drawing_tool)
+                self._drawing_window = DrawingWindow(self.drawing_tool, app=self)
                 self._drawing_window.setAttribute(Qt.WA_DeleteOnClose, False)
             if self._drawing_window.isVisible():
                 self._drawing_window.hide()
@@ -3227,19 +3412,98 @@ class ScreenRecorderApp(QMainWindow):
         except Exception as e:
             print(f"❌ 打开画图工具失败: {e}")
 
+    # ---- 画图模式（透明画板 + 配置面板） ----
+    def _drawing_mode_active(self):
+        return (self._drawing_overlay is not None
+                and self._drawing_overlay.isVisible())
+
+    def start_drawing_mode(self):
+        """进入画图模式：显示全屏透明画板（捕获鼠标实时绘制）+ 配置面板"""
+        try:
+            if self._drawing_window is None:
+                self._drawing_window = DrawingWindow(self.drawing_tool, app=self)
+                self._drawing_window.setAttribute(Qt.WA_DeleteOnClose, False)
+            if self._drawing_overlay is None:
+                self._drawing_overlay = DrawingOverlay(
+                    self.drawing_tool,
+                    on_exit=self.stop_drawing_mode,
+                    raise_panel=lambda: self._drawing_window.raise_() if self._drawing_window else None,
+                )
+            # 面板放到主屏右上角，避开画板顶部的提示条，也方便边画边换工具
+            self._position_drawing_panel()
+            self._drawing_window.show()
+            self._drawing_overlay.start()
+            # 画板最后 show/raise，面板再抬一次，保证面板始终在画板之上可点击
+            self._drawing_window.raise_()
+            self._drawing_window.refresh_mode_text()
+        except Exception as e:
+            print(f"❌ 开启画图模式失败: {e}")
+
+    def stop_drawing_mode(self):
+        """退出画图模式（隐藏透明画板；面板保留，方便调整后再次进入）"""
+        try:
+            if self._drawing_overlay is not None:
+                self._drawing_overlay.stop()
+            if self._drawing_window is not None:
+                self._drawing_window.refresh_mode_text()
+        except Exception as e:
+            print(f"❌ 退出画图模式失败: {e}")
+
+    def toggle_drawing_mode(self):
+        """F12 / 面板按钮：进入或退出画图模式"""
+        if self._drawing_mode_active():
+            self.stop_drawing_mode()
+            if self._drawing_window is not None:
+                self._drawing_window.hide()
+        else:
+            self.start_drawing_mode()
+
+    def _position_drawing_panel(self):
+        try:
+            screen = QApplication.primaryScreen()
+            if screen is None or self._drawing_window is None:
+                return
+            g = screen.availableGeometry()
+            w = max(self._drawing_window.width(), self._drawing_window.frameGeometry().width())
+            h = self._drawing_window.frameGeometry().height()
+            self._drawing_window.move(g.right() - w - 24, g.top() + 64)
+        except Exception:
+            pass
+
 # ==================== 画图工具窗口（PyQt） ====================
 class DrawingWindow(QWidget):
-    """画图工具控制面板：配置画笔/矩形/圆形、颜色、粗细，清除叠加绘制"""
-    def __init__(self, drawing_tool, parent=None):
+    """画图工具控制面板：配置画笔/矩形/圆形、颜色、粗细，清除叠加绘制
+
+    面板本身不接收绘制输入——实际绘制在全屏透明画板（DrawingOverlay）上进行，
+    这里的「开始/停止画图」按钮负责切换画图模式。
+    """
+    def __init__(self, drawing_tool, parent=None, app=None):
         super().__init__(parent)
         self.drawing_tool = drawing_tool
+        self.app = app
         self.setWindowTitle("🎨 画图工具")
         self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
-        self.resize(320, 360)
+        self.resize(320, 400)
+        self.setFocusPolicy(Qt.StrongFocus)  # 面板拿到焦点时 Esc 也能退出画图模式
         self._build_ui()
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
+
+        # 画图模式开关（透明画板的进出由主窗口控制）
+        mode_group = QGroupBox("画图模式")
+        mode_layout = QVBoxLayout()
+        self.mode_btn = QPushButton("▶ 开始画图")
+        self.mode_btn.setStyleSheet(
+            "background-color: #27ae60; color: white; font-weight: bold; padding: 6px;")
+        self.mode_btn.clicked.connect(self._toggle_mode)
+        mode_layout.addWidget(self.mode_btn)
+        mode_hint = QLabel("开启后按住鼠标左键在屏幕上直接绘制；\nEsc 或再按一次退出画图模式。")
+        mode_hint.setWordWrap(True)
+        mode_hint.setStyleSheet("color: #888888; font-size: 11px;")
+        mode_layout.addWidget(mode_hint)
+        mode_group.setLayout(mode_layout)
+        layout.addWidget(mode_group)
 
         # 工具选择
         tool_group = QGroupBox("工具")
@@ -3289,12 +3553,35 @@ class DrawingWindow(QWidget):
         control_layout = QVBoxLayout()
         clear_btn = QPushButton("清除所有")
         clear_btn.setStyleSheet("background-color: #e74c3c; color: white; font-weight: bold;")
-        clear_btn.clicked.connect(self.drawing_tool.clear_all)
+        clear_btn.clicked.connect(self._clear_all)
         control_layout.addWidget(clear_btn)
         control_group.setLayout(control_layout)
         layout.addWidget(control_group)
 
         layout.addStretch()
+
+    def _toggle_mode(self):
+        if self.app is not None:
+            self.app.toggle_drawing_mode()
+
+    def refresh_mode_text(self):
+        """主窗口画图模式状态变化后同步按钮文字"""
+        active = self.app._drawing_mode_active() if self.app is not None else False
+        self.mode_btn.setText("⏹ 停止画图" if active else "▶ 开始画图")
+
+    def _clear_all(self):
+        self.drawing_tool.clear_all()
+        # 画板开着时让它立刻重绘，屏幕上的笔画同步消失
+        if self.app is not None and getattr(self.app, '_drawing_overlay', None) is not None:
+            self.app._drawing_overlay.update()
+
+    def keyPressEvent(self, event):
+        # 面板获得焦点时按 Esc 同样退出画图模式
+        if event.key() == Qt.Key_Escape and self.app is not None:
+            if self.app._drawing_mode_active():
+                self.app.stop_drawing_mode()
+                return
+        super().keyPressEvent(event)
 
     def _set_tool(self, tool):
         self.drawing_tool.set_tool(tool)
