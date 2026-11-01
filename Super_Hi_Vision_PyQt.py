@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Super Hi Vision - 高级超高清屏幕录制工具 (PyQt5现代化版本)
-版本: 1.5.29
+版本: 1.5.30
 使用PyQt5构建现代化界面，保持原有录制逻辑不变
 支持中英文语言切换
 支持多主题切换
@@ -244,7 +244,7 @@ if not check_and_install_pyqt5():
         "程序无法启动，PyQt5 依赖不可用！\n\n"
         "请确保已安装 Python 和 pip，然后运行：\n"
         "    pip install PyQt5\n\n"
-        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.29.exe）。"
+        "或直接使用已打包的 EXE 版本（SuperHiVision_v1.5.30.exe）。"
     )
     sys.exit(1)
 
@@ -289,7 +289,7 @@ except Exception:
 # ==================== 版本和版权信息 ====================
 __author__ = "QLM Network Entertainment Technology Co., Ltd."
 __copyright__ = "Copyright 2019-2025, QLM Network Entertainment Technology Co., Ltd."
-__version__ = "1.5.29"
+__version__ = "1.5.30"
 __license__ = "MIT"
 __email__ = "qlm@qlm.org.cn"
 __website__ = "https://team.qlm.org.cn"
@@ -2073,16 +2073,28 @@ class ScreenRecorderApp(QMainWindow):
     _FOURCC_DEFAULT = ['mp4v', 'MJPG']
 
     def _create_video_writer(self, output_file, width, height):
-        """创建视频写入器：按容器依次尝试可用编码，并校验是否真正打开
+        """创建视频写入器：按容器依次尝试可用编码，并做真实写盘自检
 
-        某些 fourcc（例如 MKV 常用的 X264）在当前 OpenCV 里没有对应编码器时会
-        静默失败——不抛异常、不写任何数据，最后留下一个 0 字节、无法播放的文件。
-        这里逐个候选验证 isOpened()，全部失败则返回 None，由调用方提示用户。
+        三类坑都实际遇到过：
+        - 某些 fourcc（如 MKV 的 X264）没有对应编码器时静默失败，留下 0 字节文件；
+        - OpenCV 5.0 实测会出现「isOpened() 返回 True，但编码器初始化已失败，
+          之后所有 write() 被静默丢弃」（如缺少 OpenH264 运行库的 avc1），
+          0 帧落盘的文件恰好是 0 字节（4.11 还会留 258 字节头，5.0 是纯 0）；
+        - 安全软件按「程序」拦截未签名 exe 的写盘时，同样表现为静默 0 字节。
+        所以 isOpened() 不可信：每个候选编码先在正式文件旁的探测文件上走一遍
+        「打开 → 写一帧 → release → 校验非 0 字节」，落盘成功才用它打开正式文件。
+        全部候选失败则返回 None，由调用方弹窗（并在诊断日志留下现场）。
         """
         candidates = self._FOURCC_CANDIDATES.get(self.format, self._FOURCC_DEFAULT)
+        ext = os.path.splitext(output_file)[1] or ".mp4"
         last_error = "无可用编码器"
 
         for tag in candidates:
+            probe_ok, probe_err = self._probe_codec(tag, ext, width, height, output_file)
+            if not probe_ok:
+                last_error = (f"编码 {tag} 写盘自检失败（{probe_err}）")
+                continue
+
             try:
                 writer = cv2.VideoWriter(
                     output_file, cv2.VideoWriter_fourcc(*tag), self.fps, (width, height)
@@ -2091,7 +2103,13 @@ class ScreenRecorderApp(QMainWindow):
                 last_error = str(e)
                 continue
 
-            if writer.isOpened():
+            opened = False
+            try:
+                opened = writer.isOpened()
+            except Exception:
+                opened = False
+
+            if opened:
                 if tag != candidates[0]:
                     print(f"⚠️ 编码 {candidates[0]} 不可用，已回退到 {tag}")
                 print(f"🎬 视频编码: {tag} -> {output_file}")
@@ -2104,7 +2122,56 @@ class ScreenRecorderApp(QMainWindow):
             last_error = f"编码 {tag} 无法打开"
 
         print(f"❌ 无法创建视频写入器: {last_error}")
+        log_diagnostic(
+            f"无法创建视频写入器: {last_error} | cv2={cv2.__version__} "
+            f"format={self.format} {width}x{height} -> {output_file}")
         return None
+
+    def _probe_codec(self, tag, ext, width, height, output_file):
+        """对单个编码做真实写盘自检：在正式输出同目录建探测文件，
+        走「打开 → 写一帧 → release」并校验文件非 0 字节。
+
+        探测文件与正式输出同目录（同一磁盘、同一安全策略，结果才有代表性）。
+        返回 (是否可用, 失败原因)。"""
+        probe_dir = os.path.dirname(output_file) or "."
+        probe_path = os.path.join(probe_dir, f".shv_codec_probe_{tag.lower()}{ext}")
+        try:
+            try:
+                if os.path.exists(probe_path):
+                    os.remove(probe_path)
+            except Exception:
+                pass
+            try:
+                probe = cv2.VideoWriter(
+                    probe_path, cv2.VideoWriter_fourcc(*tag), self.fps, (width, height)
+                )
+            except Exception as e:
+                return False, f"创建异常 {type(e).__name__}: {e}"
+            try:
+                if not probe.isOpened():
+                    return False, "无法打开"
+                probe.write(np.zeros((height, width, 3), dtype=np.uint8))
+            finally:
+                try:
+                    probe.release()
+                except Exception:
+                    pass
+            # release 后句柄可能有短暂延迟，重试校验
+            for _ in range(10):
+                try:
+                    if os.path.exists(probe_path) and os.path.getsize(probe_path) > 0:
+                        return True, ""
+                    return False, ("写入一帧后文件仍为空（write 被静默丢弃——"
+                                   "编码器损坏或安全软件按程序拦截写盘）")
+                except Exception:
+                    time.sleep(0.1)
+            return False, "校验超时"
+        finally:
+            try:
+                if os.path.exists(probe_path):
+                    os.remove(probe_path)
+            except Exception:
+                pass
 
     def start_recording(self):
         """开始录制"""
@@ -2224,6 +2291,9 @@ class ScreenRecorderApp(QMainWindow):
             return
 
         self.video_writer = writer
+        # 打包版里 print 不可见：采集/写帧异常必须进诊断日志（限流：首 3 条 + 每 200 条）
+        loop_failures = 0
+        logged_failures = 0
         try:
             while self.recording:
                 # 累加有效录制时长（不含暂停），用于录制结束后校正视频帧率
@@ -2265,9 +2335,29 @@ class ScreenRecorderApp(QMainWindow):
                         if frame is not None and frame.size > 0:
                             writer.write(frame)
                             self.frame_count += 1
+                            loop_failures = 0
 
                     except Exception as e:
+                        loop_failures += 1
+                        logged_failures += 1
+                        if logged_failures <= 3 or logged_failures % 200 == 0:
+                            log_diagnostic(
+                                f"录制循环第 {loop_failures} 次连续失败: "
+                                f"{type(e).__name__}: {e}")
                         print(f"Recording error: {e}")
+                        # 连续失败超过 1.5 秒的帧数就中止：抓屏/写帧坏掉时
+                        # 别再「假装录制」，尽早给用户一个明确的错误
+                        if loop_failures > max(15, self.fps):
+                            self.recording = False
+                            log_diagnostic(
+                                f"录制中止：采集/写帧连续失败 {loop_failures} 次 "
+                                f"(cv2={cv2.__version__}, mode={self._cap_mode})")
+                            self.recording_error.emit(
+                                f"录制已中止：屏幕采集或视频写入连续失败 {loop_failures} 次。\n\n"
+                                f"最后错误：{type(e).__name__}: {e}\n\n"
+                                f"详细日志：{_log_path()}"
+                            )
+                            break
                         continue
 
                 QThread.msleep(int(1000 / self.fps))
@@ -2277,6 +2367,20 @@ class ScreenRecorderApp(QMainWindow):
                 writer.release()
             except Exception as e:
                 print(f"⚠️ 释放视频写入器失败: {e}")
+            # 「录了帧但文件是 0 字节」意味着写入被静默丢弃（帧尺寸不符 /
+            # 编码器损坏 / 安全软件按程序拦截写盘），必须留下可诊断的现场
+            try:
+                if (self.frame_count > 0
+                        and os.path.exists(self.output_file)
+                        and os.path.getsize(self.output_file) == 0):
+                    log_diagnostic(
+                        f"异常现场：写入了 {self.frame_count} 帧但文件为 0 字节 "
+                        f"(cv2={cv2.__version__}, mode={self._cap_mode}, "
+                        f"{self._cap_width}x{self._cap_height}) -> {self.output_file}。"
+                        f"常见原因：安全软件按「程序」拦截本 exe 写文件，"
+                        f"或将本程序加入安全软件白名单后重试")
+            except Exception:
+                pass
             self.video_writer = None
 
     def pause_recording(self):
@@ -2438,11 +2542,22 @@ class ScreenRecorderApp(QMainWindow):
         # 结果校验：避免"录制完成"的提示掩盖 0 字节 / 损坏文件
         saved = bool(self.output_file) and os.path.exists(self.output_file) and os.path.getsize(self.output_file) > 0
         if not saved:
+            log_diagnostic(
+                f"保存结果校验失败: output={self.output_file} exists="
+                f"{os.path.exists(self.output_file) if self.output_file else False} "
+                f"frames={getattr(self, 'frame_count', 0)} cv2={cv2.__version__}")
+            hint = ""
+            if getattr(self, 'frame_count', 0) > 0:
+                # 帧写进去了但文件是 0 字节：写入被静默丢弃，几乎可以断定是安全软件
+                hint = ("\n检测到帧已写入但文件为空——很可能是安全软件按「程序」拦截了本程序的磁盘写入。\n"
+                        "请把本程序（或其所在目录）加入安全软件的白名单/信任区后重试。\n")
             QMessageBox.warning(
                 self, "录制失败",
                 "视频文件未能正常生成（文件不存在或为空）。\n"
-                f"输出路径：{self.output_file}\n格式：{self.format}\n\n"
-                "请更换视频格式（推荐 MP4）或确认输出目录可写后重试。"
+                f"输出路径：{self.output_file}\n格式：{self.format}\n"
+                f"{hint}\n"
+                "建议：更换视频格式（推荐 MP4）、确认输出目录可写；\n"
+                f"若反复出现，请把详细诊断日志发给开发者：\n{_log_path()}"
             )
         elif save_error is not None:
             QMessageBox.warning(
@@ -2766,7 +2881,6 @@ class ScreenRecorderApp(QMainWindow):
         try:
             if not self.audio_frames:
                 return None
-            temp_audio_file = os.path.join(self.temp_dir, "temp_audio.wav")
             if self.audio_recorder is not None:
                 channels = getattr(self.audio_recorder, 'actual_channels', 1) or 1
                 sample_rate = getattr(self.audio_recorder, 'actual_sample_rate', 44100) or 44100
@@ -2776,15 +2890,38 @@ class ScreenRecorderApp(QMainWindow):
 
             # 自动增益放大（解决音量过低），再交由 FFmpeg loudnorm 归一化到标准响度
             audio_data = _boost_audio_gain(b''.join(self.audio_frames))
-            with wave.open(temp_audio_file, 'wb') as wf:
-                wf.setnchannels(channels)
-                wf.setsampwidth(2)  # 16 位 PCM
-                wf.setframerate(sample_rate)
-                wf.writeframes(audio_data)
 
-            if not os.path.exists(temp_audio_file) or os.path.getsize(temp_audio_file) == 0:
-                return None
-            return temp_audio_file, sample_rate, channels
+            # 候选路径：临时目录（可能被系统/安全软件的清理功能删掉——实测发生过，
+            # 目录消失会让 open 直接 FileNotFoundError）→ 视频旁边 → 用户主目录。
+            # 前者写前先重建目录自愈，整体逐级回退，绝不因目录消失而丢音频。
+            candidates = [os.path.join(self.temp_dir, "temp_audio.wav")]
+            if self.output_file:
+                candidates.append(
+                    os.path.splitext(self.output_file)[0] + ".temp_audio.wav")
+            candidates.append(os.path.join(
+                os.path.expanduser("~"), "SuperHiVision_temp_audio.wav"))
+
+            last_err = None
+            for temp_audio_file in candidates:
+                try:
+                    os.makedirs(os.path.dirname(temp_audio_file) or ".", exist_ok=True)
+                    with wave.open(temp_audio_file, 'wb') as wf:
+                        wf.setnchannels(channels)
+                        wf.setsampwidth(2)  # 16 位 PCM
+                        wf.setframerate(sample_rate)
+                        wf.writeframes(audio_data)
+
+                    if os.path.exists(temp_audio_file) and os.path.getsize(temp_audio_file) > 0:
+                        if temp_audio_file != candidates[0]:
+                            log_diagnostic(f"临时目录不可用，音频已改写到: {temp_audio_file}")
+                        return temp_audio_file, sample_rate, channels
+                    last_err = f"写入 {temp_audio_file} 后文件为空"
+                except Exception as e:
+                    last_err = f"{type(e).__name__}: {e} ({temp_audio_file})"
+                    print(f"⚠️ 写音频到 {temp_audio_file} 失败: {last_err}")
+                    continue
+            log_diagnostic(f"写音频文件失败（所有候选路径）: {last_err}")
+            return None
         except Exception as e:
             print(f"❌ 写音频文件失败: {e}")
             log_diagnostic(f"写音频文件失败: {type(e).__name__}: {e}")
