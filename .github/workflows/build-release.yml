@@ -43,7 +43,7 @@ jobs:
           # PyInstaller 钉 6.22.2：6.22.3 在 PyQt5 钩子阶段会硬崩（无 traceback），本地/CI 均可复现
           # opencv-python 钉 4.11.0：5.0 实测有「isOpened() 为 True 但编码器初始化失败、
           # write 被静默丢弃、0 帧落盘为纯 0 字节文件」的回归，必须锁在已知可用版本
-          pip install "pyinstaller==6.22.2" PyQt5 "opencv-python==4.11.0" pillow numpy pyaudio pynput
+          pip install "pyinstaller==6.22.2" PyQt5 "opencv-python==4.11.0.86" pillow numpy pyaudio pynput
 
       - name: Download FFmpeg (win64 static)
         shell: pwsh
